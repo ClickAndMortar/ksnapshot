@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@kubernetes/client-node": "^0.14.0",
+    "axios": "^0.21.1",
+    "cron": "^1.8.2",
+    "lodash": "^4.17.21"
+  },
+  "scripts": {
+    "dev": "node index.js"
+  },
+  "license": "UNLICENSED"
+}
