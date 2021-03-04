@@ -3,10 +3,13 @@
     "@kubernetes/client-node": "^0.14.0",
     "axios": "^0.21.1",
     "cron": "^1.8.2",
-    "lodash": "^4.17.21"
+    "lodash": "^4.17.21",
+    "qs": "^6.9.6"
   },
   "scripts": {
-    "dev": "node index.js"
+    "dev": "node index.js",
+    "prod": "node index.js"
   },
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "devDependencies": {}
 }

@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: ksnapshot
+  name: ksnapshot
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ksnapshot
+  template:
+    metadata:
+      labels:
+        app: ksnapshot
+    spec:
+      serviceAccountName: ksnapshot-sa
+      containers:
+        - image: clickandmortar/ksnapshot:latest
+          name: ksnapshot
+          imagePullPolicy: Always
+          env:
+            - name: MODE
+              value: cluster
