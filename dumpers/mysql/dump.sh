@@ -8,7 +8,13 @@ DUMP_PATH="/tmp/${DUMP_NAME}"
 
 MYSQLDUMP_OPTIONS="--no-tablespaces --single-transaction ${MYSQLDUMP_OPTIONS}"
 
+for TABLE in ${MYSQLDUMP_EXCLUDED_TABLES}; do
+  MYSQLDUMP_OPTIONS="${MYSQLDUMP_OPTIONS} --ignore-table=${MYSQL_DATABASE}.${TABLE}"
+done
+
 echo "Dumping database ${MYSQL_DATABASE} from server ${MYSQL_HOST}:${MYSQL_PORT}"
+
+DATE_START="$(date +%s)"
 
 mysqldump \
   -u ${MYSQL_USERNAME} \
@@ -16,9 +22,22 @@ mysqldump \
   -h ${MYSQL_HOST} \
   -P ${MYSQL_PORT} \
   ${MYSQLDUMP_OPTIONS} \
-  ${MYSQL_DATABASE} | gzip > ${DUMP_PATH}
+  ${MYSQL_DATABASE} ${MYSQLDUMP_TABLES} | gzip > ${DUMP_PATH} &
+
+while pgrep mysqldump > /dev/null
+do
+  echo "Dump size: $(echo "$(stat -c %s ${DUMP_PATH})/1024^2" | bc)MB"
+  echo "Duration: $(echo "$(date +%s)-${DATE_START}" | bc) seconds"
+  sleep 10
+done
 
 echo "Dump available at: ${DUMP_PATH}"
+
+if [[ "${ENCRYPTION_ENABLED}" == "true" ]]; then
+  age -r ${ENCRYPTION_RECIPIENT} -o ${DUMP_PATH}.age ${DUMP_PATH}
+  DUMP_NAME="${DUMP_NAME}.age"
+  DUMP_PATH="${DUMP_PATH}.age"
+fi
 
 if [[ "${BACKEND_TYPE}" == "s3" ]]; then
 
@@ -34,3 +53,5 @@ if [[ "${BACKEND_TYPE}" == "s3" ]]; then
 
     osm push --context ksnapshot -c ${BACKEND_BUCKET} ${DUMP_PATH} /$(echo ${BACKEND_PATH} | sed -r -e "s/\/$//g" -e "s/^\///g")/${DUMP_NAME}
 fi
+
+rm -f ${DUMP_PATH}

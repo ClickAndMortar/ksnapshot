@@ -47,11 +47,11 @@ const looper = () => {
 
             cronjobs[name].object = _.cloneDeep(item);
             if (cronjobs[name].cron) {
-                console.log(`Updating cronjob for ${name}`);
+                console.log(`Updating cronjob for ${item.metadata.namespace}/${name} schedule`);
                 cronjobs[name].cron.stop();
                 delete cronjobs[name].cron
             } else {
-                console.log(`Adding cronjob for ${name}`);
+                console.log(`Adding cronjob for ${item.metadata.namespace}/${name} schedule`);
             }
 
             cronjobs[name].cron = new CronJob(item.spec.cronSpec, () => {
