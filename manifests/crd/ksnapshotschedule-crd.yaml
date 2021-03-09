@@ -39,6 +39,12 @@ spec:
                     mysql:
                       type: object
                       properties:
+                        version:
+                          type: string
+                          enum:
+                            - "5.7"
+                            - "8"
+                          default: "8"
                         host:
                           type: string
                         port:
@@ -132,6 +138,23 @@ spec:
                   required:
                     - type
                     - config
+                resources:
+                  type: object
+                  properties:
+                    limits:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                        memory:
+                          type: string
+                    requests:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                        memory:
+                          type: string
               required:
                 - cronSpec
                 - type

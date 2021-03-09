@@ -1,7 +1,6 @@
 #!/bin/bash
 
-set -e
-set -o pipefail
+set -e -o pipefail
 
 DUMP_NAME="dump-${MYSQL_DATABASE}-$(date +%Y%m%d%H%M).sql.gz"
 DUMP_PATH="/tmp/${DUMP_NAME}"
@@ -26,9 +25,12 @@ mysqldump \
 
 while pgrep mysqldump > /dev/null
 do
-  echo "Dump size: $(echo "$(stat -c %s ${DUMP_PATH})/1024^2" | bc)MB"
-  echo "Duration: $(echo "$(date +%s)-${DATE_START}" | bc) seconds"
-  sleep 10
+  # Show progress every 30 seconds
+  if [[ "$(echo "$(date +%s)%30" | bc)" == "0" ]]; then
+    echo -n "Dump size: $(echo "$(stat -c %s ${DUMP_PATH})/1024^2" | bc)MB, "
+    echo "duration: $(echo "$(date +%s)-${DATE_START}" | bc) seconds"
+  fi
+  sleep 1
 done
 
 echo "Dump available at: ${DUMP_PATH}"
