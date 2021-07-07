@@ -77,6 +77,11 @@ const looper = () => {
     console.error(err)
   })
 
+  // Only run every ~5 loops
+  if (Math.round(Math.random() * 100) % 5 === 0) {
+    k8sClient.deleteTerminatedJobs(jobLabelFilters)
+  }
+
   setTimeout(looper, 10000)
 }
 
