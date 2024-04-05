@@ -17,7 +17,7 @@ spec:
     spec:
       serviceAccountName: ksnapshot-sa
       containers:
-        - image: clickandmortar/ksnapshot:latest
+        - image: ghcr.io/clickandmortar/ksnapshot:latest
           name: ksnapshot
           imagePullPolicy: Always
           env:

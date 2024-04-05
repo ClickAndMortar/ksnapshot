@@ -1,9 +1,12 @@
-name: CI/CD Workflow
+name: MySQL dumpers CI/CD Workflow
 
 on:
   push:
     branches:
       - main
+    paths:
+      - '.github/workflows/mysql_dumpers.yaml'
+      - 'dumpers/mysql/**'
 
 jobs:
   build:
@@ -25,14 +28,6 @@ jobs:
       - name: Extract short SHA
         id: sha
         run: echo "::set-output name=short::$(echo ${GITHUB_SHA::8})"
-
-      - name: Build and push Docker image for ksnapshot operator
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          tags: ghcr.io/clickandmortar/ksnapshot:${{ steps.sha.outputs.short }},ghcr.io/clickandmortar/ksnapshot:latest
 
       - name: Build and push Docker image for MySQL 8 dumper
         uses: docker/build-push-action@v2
