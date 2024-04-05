@@ -1,22 +1,27 @@
 {
   "dependencies": {
-    "@kubernetes/client-node": "^0.14.0",
-    "axios": "^0.21.1",
-    "cron": "^1.8.2",
+    "@kubernetes/client-node": "^0.20.0",
     "lodash": "^4.17.21",
-    "qs": "^6.9.6"
+    "qs": "^6.12.0"
   },
   "scripts": {
-    "dev": "node index.js",
-    "prod": "node index.js",
+    "dev": "tsx watch index.mts",
     "lint": "eslint"
   },
+  "type": "module",
   "license": "UNLICENSED",
   "devDependencies": {
+    "@types/lodash": "^4.17.0",
+    "@types/node": "^20.12.4",
+    "@types/qs": "^6.9.14",
     "eslint": "^7.21.0",
+    "eslint-config-prettier": "^9.1.0",
     "eslint-config-standard": "^16.0.2",
     "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-node": "^11.1.0",
-    "eslint-plugin-promise": "^4.3.1"
+    "eslint-plugin-promise": "^4.3.1",
+    "prettier": "3.2.5",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.3"
   }
 }

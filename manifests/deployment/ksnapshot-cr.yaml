@@ -4,17 +4,28 @@ metadata:
   name: ksnapshot
 rules:
   - apiGroups:
-      - ksnapshot.clickandmortar.io
-    resources:
-      - schedules
-    verbs:
-      - get
-      - list
-  - apiGroups:
       - batch
     resources:
+      - cronjobs
       - jobs
     verbs:
       - create
+      - get
+      - list
+      - delete
+  - apiGroups: [""]
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - delete
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+    verbs:
       - get
       - list

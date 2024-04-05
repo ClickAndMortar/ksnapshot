@@ -4,10 +4,10 @@ WORKDIR /app
 
 ENV MODE=cluster
 
-COPY package.json yarn.lock /app/
+COPY package.json package-lock.json /app/
 
-RUN yarn install
+RUN npm install
 
 COPY . /app/
 
-CMD ["yarn", "prod"]
+CMD ["npm", "prod"]

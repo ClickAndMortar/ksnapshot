@@ -4,7 +4,7 @@ metadata:
   labels:
     app: ksnapshot
   name: ksnapshot
-  namespace: kube-system
+  namespace: ksnapshot
 spec:
   replicas: 1
   selector:

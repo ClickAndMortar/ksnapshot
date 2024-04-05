@@ -2,4 +2,4 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: ksnapshot-sa
-  namespace: kube-system
+  namespace: ksnapshot
