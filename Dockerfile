@@ -10,9 +10,14 @@ RUN npm install \
 FROM node:18
 
 ENV MODE=cluster
+ENV NODE_ENV=production
 
 WORKDIR /app
 
 COPY --from=builder /app/dist /app
+COPY --from=builder /app/package.json /app/package.json
+COPY --from=builder /app/package-lock.json /app/package-lock.json
+
+RUN npm install --only=production
 
 CMD ["node", "index.js"]

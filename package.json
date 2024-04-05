@@ -12,6 +12,7 @@
   "devDependencies": {
     "@types/node": "^20.12.4",
     "@types/qs": "^6.9.14",
+    "esbuild": "^0.20.2",
     "eslint": "^7.21.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-config-standard": "^16.0.2",
