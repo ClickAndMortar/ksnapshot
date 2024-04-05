@@ -33,6 +33,8 @@ To schedule a snapshot, you may use the following annotations on a `Pod`:
 
 ## Enhancements
 
+* [ ] Add debugging using `debug` package
+* [ ] Expose Prometheus metrics
 * [ ] Encrypt files before uploading to object storage using AWS KMS
 * [ ] Allow using a PVC or claiming a PV for large dumps
 * [ ] Allow defining resources requests/limits on dumpers

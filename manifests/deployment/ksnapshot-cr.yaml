@@ -10,16 +10,17 @@ rules:
       - jobs
     verbs:
       - create
+      - update
       - get
       - list
       - delete
   - apiGroups: [""]
     resources:
       - pods
+      - services
     verbs:
       - get
       - list
-      - delete
   - apiGroups:
       - apps
     resources:
