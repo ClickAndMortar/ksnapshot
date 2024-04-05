@@ -5,6 +5,8 @@ Ksnapshot is a Kubernetes operator that allows you to schedule snapshots of your
 ## Install
 
 ```shell script
+kubectl create namespace ksnapshot
+
 # Apply manifests
 kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/master/manifests/deployment/ksnapshot-sa.yaml
 kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/master/manifests/deployment/ksnapshot-cr.yaml
@@ -24,6 +26,8 @@ To schedule a snapshot, you may use the following annotations on a `Pod`:
 | `ksnapshot.clickandmortar.fr/type`     | Snapshot type (`mysql` or `elasticsearch`)      | Yes      |                 |
 | `ksnapshot.clickandmortar.fr/version`  | Data source main version (`mysql`: `5.7` or `8` | No       | `8` for `mysql` |
 
+> [!WARNING]
+> All values in annotations must be strings.
 
 ## Enhancements
 
@@ -38,4 +42,4 @@ To schedule a snapshot, you may use the following annotations on a `Pod`:
   * [ ] Add support
 * Persistent Volumes backuping
   * [ ] Add support
-  * [ ] Handle conditions (ie. files modified since)
+  * [ ] Handle conditions (i.e. files modified since)
