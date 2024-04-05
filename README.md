@@ -8,10 +8,10 @@ Ksnapshot is a Kubernetes operator that allows you to schedule snapshots of your
 kubectl create namespace ksnapshot
 
 # Apply manifests
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/master/manifests/deployment/ksnapshot-sa.yaml
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/master/manifests/deployment/ksnapshot-cr.yaml
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/master/manifests/deployment/ksnapshot-crb.yaml
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/master/manifests/deployment/ksnapshot-deployment.yaml
+kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-sa.yaml
+kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-cr.yaml
+kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-crb.yaml
+kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-deployment.yaml
 ```
 
 ## Usage
@@ -28,6 +28,8 @@ To schedule a snapshot, you may use the following annotations on a `Pod`:
 
 > [!WARNING]
 > All values in annotations must be strings.
+
+⚠️ TODO: backend type, `ksnapshot-secret` reference for AWS credentials.
 
 ## Enhancements
 

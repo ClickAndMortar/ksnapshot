@@ -1,13 +1,18 @@
-FROM node:12
+FROM node:18 as builder
 
 WORKDIR /app
 
-ENV MODE=cluster
-
-COPY package.json package-lock.json /app/
-
-RUN npm install
-
 COPY . /app/
 
-CMD ["npm", "prod"]
+RUN npm install \
+    && tsc
+
+FROM node:18
+
+ENV MODE=cluster
+
+WORKDIR /app
+
+COPY --from=builder /app/dist /app
+
+CMD ["node", "index.js"]

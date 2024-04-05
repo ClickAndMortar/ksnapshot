@@ -1,3 +1,4 @@
 node_modules
 *.sql.gz
 manifests/samples/
+dist

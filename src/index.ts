@@ -1,5 +1,5 @@
-import { k8sBatchApi, k8sCoreApi, k8sAppsApi } from './k8s'
-import { getAnnotation } from './utils'
+import { k8sBatchApi, k8sCoreApi, k8sAppsApi } from './k8s.js'
+import { getAnnotation } from './utils.js'
 import { V1CronJob } from '@kubernetes/client-node'
 import qs from 'qs'
 
@@ -85,8 +85,7 @@ const looper = async () => {
 
       const type = annotations[getAnnotation('type')]
       let version = annotations[getAnnotation('version')]
-      // const schedule = annotations[getAnnotation('schedule')]
-      const schedule = '1 0 * * *' // TODO: remove, temporary to test
+      const schedule = annotations[getAnnotation('schedule')]
       const timeZone = annotations[getAnnotation('timezone')] || 'Etc/UTC'
 
       if (!schedule) {
