@@ -8,6 +8,6 @@ RUN apt-get update \
 RUN wget -q https://github.com/FiloSottile/age/releases/download/v1.0.0-beta7/age-v1.0.0-beta7-linux-amd64.tar.gz -O /tmp/age.tgz \
     && tar -C /usr/local/bin/ --strip-components=1 -zxf /tmp/age.tgz age/age
 
-COPY dump.sh /dump.sh
+COPY /dumpers/mysql/dump.sh /dump.sh
 
 CMD ["/dump.sh"]

@@ -199,7 +199,12 @@ const looper = async () => {
                           },
                           {
                             name: 'BACKEND_BUCKET',
-                            value: 'clickandmortar-backup',
+                            valueFrom: {
+                              configMapKeyRef: {
+                                name: 'ksnapshot-cm',
+                                key: 'S3_BUCKET',
+                              },
+                            },
                           },
                           {
                             name: 'BACKEND_PATH',
@@ -255,13 +260,18 @@ const looper = async () => {
 
   // TODO: delete terminated jobs
 
-  await setTimeout(async () => {
+  setTimeout(async () => {
     await looper()
   }, LOOP_INTERVAL_MS)
 }
 
+process.on('SIGINT', () => {
+  console.log('SIGINT, terminating')
+  process.exit(0)
+})
+
 process.on('SIGTERM', () => {
-  console.log('Terminating')
+  console.log('SIGTERM, terminating')
   process.exit(0)
 })
 
