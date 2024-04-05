@@ -138,6 +138,8 @@ const looper = async () => {
             schedule,
             timeZone,
             concurrencyPolicy: 'Forbid',
+            successfulJobsHistoryLimit: 1,
+            failedJobsHistoryLimit: 1,
             jobTemplate: {
               spec: {
                 backoffLimit: 0,
