@@ -5,7 +5,7 @@ WORKDIR /app
 COPY . /app/
 
 RUN npm install \
-    && tsc
+    && node_modules/.bin/tsc
 
 FROM node:18
 
