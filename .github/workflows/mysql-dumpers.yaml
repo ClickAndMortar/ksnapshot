@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - '.github/workflows/mysql_dumpers.yaml'
+      - '.github/workflows/mysql-dumpers.yaml'
       - 'dumpers/mysql/**'
 
 jobs:

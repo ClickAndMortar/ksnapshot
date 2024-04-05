@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - '.github/workflows/ksnapshot_operator.yaml'
+      - '.github/workflows/ksnapshot-operator.yaml'
       - 'src/**'
       - '*'
 
