@@ -33,6 +33,6 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           context: .
-          file: dumpers/mysql/8/Dockerfile
+          file: dumpers/elasticsearch/Dockerfile
           push: true
           tags: ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:${{ steps.sha.outputs.short }},ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:latest
