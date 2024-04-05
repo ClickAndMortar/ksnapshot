@@ -47,9 +47,7 @@ if [[ "${BACKEND_TYPE}" == "s3" ]]; then
         --s3.access_key_id=${BACKEND_S3_ACCESS_KEY} --s3.secret_key=${BACKEND_S3_SECRET_KEY} \
         --s3.endpoint=${S3_ENDPOINT} ${OSM_CONFIG_ARGS}
 
-    for FILE in "${DUMP_DIRECTORY}/${DUMP_PREFIX}*${DUMP_SUFFIX}"; do
-        osm push --context ksnapshot -c ${BACKEND_BUCKET} ${DUMP_DIRECTORY}/$(basename ${FILE}) /$(echo ${BACKEND_PATH} | sed -r -e "s/\/$//g" -e "s/^\///g")/$(date +%Y)/$(date +%m)/$(date +%d)/$(basename ${FILE})
-    done
+    osm push --context ksnapshot -c ${BACKEND_BUCKET} ${DUMP_DIRECTORY}/ /$(echo ${BACKEND_PATH} | sed -r -e "s/\/$//g" -e "s/^\///g")/$(date +%Y)/$(date +%m)/$(date +%d)/
 fi
 
 rm -rf ${DUMP_DIRECTORY}
