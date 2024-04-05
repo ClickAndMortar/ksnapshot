@@ -108,131 +108,146 @@ const looper = async () => {
 
       let cronjobName = ''
 
-      if (type === 'mysql') {
-        cronjobName = `ksnapshot-mysql-${cronjobOwner.replace('/', '-').substring(0, 20)}`
-        const existingCronjob = cronjobList.items.find((cronjob) => {
-          return cronjob.metadata?.name === cronjobName
-        })
+      cronjobName = `ksnapshot-${type}-${cronjobOwner.replace('/', '-').substring(0, 20)}`
+      const existingCronjob = cronjobList.items.find((cronjob) => {
+        return cronjob.metadata?.name === cronjobName
+      })
 
-        if (!version) {
-          version = defaultMysqlVersion
-        }
+      const podEnv = pod.spec?.containers[0]?.env
+      if (!podEnv) {
+        console.error(`Pod ${namespace}/${pod.metadata?.name} has no environment variables, skipping`)
+        continue
+      }
 
-        const podEnv = pod.spec?.containers[0]?.env
-        if (!podEnv) {
-          console.error(`Pod ${namespace}/${pod.metadata?.name} has no environment variables, skipping`)
-          continue
-        }
-
-        const snapshotCronjob: V1CronJob = {
-          kind: 'CronJob',
-          metadata: {
-            name: cronjobName,
-            namespace: ksnapshotNamespace,
-            annotations: {
-              [cronjobOwnerAnnotation]: cronjobOwner,
-            },
-            labels: labelFilters,
+      const snapshotCronjob: V1CronJob = {
+        kind: 'CronJob',
+        metadata: {
+          name: cronjobName,
+          namespace: ksnapshotNamespace,
+          annotations: {
+            [cronjobOwnerAnnotation]: cronjobOwner,
           },
-          spec: {
-            schedule,
-            timeZone,
-            concurrencyPolicy: 'Forbid',
-            successfulJobsHistoryLimit: 1,
-            failedJobsHistoryLimit: 1,
-            jobTemplate: {
-              spec: {
-                backoffLimit: 0,
-                activeDeadlineSeconds: 3600,
-                template: {
-                  spec: {
-                    restartPolicy: 'Never',
-                    containers: [
-                      {
-                        name: 'job',
-                        imagePullPolicy: 'Always',
-                        image: `ghcr.io/clickandmortar/ksnapshot-dumper-mysql-${version}:latest`,
-                        env: [
-                          {
-                            name: 'MYSQL_HOST',
-                            value: `${service.metadata?.name}.${service.metadata?.namespace}.svc.cluster.local`,
-                          },
-                          {
-                            name: 'MYSQL_PORT',
-                            value: '3306',
-                          },
-                          {
-                            name: 'MYSQL_USERNAME',
-                            value: podEnv.find((env) => env.name === 'MYSQL_USER')?.value || '',
-                          },
-                          {
-                            name: 'MYSQL_PASSWORD',
-                            value: podEnv.find((env) => env.name === 'MYSQL_PASSWORD')?.value || '',
-                          },
-                          {
-                            name: 'MYSQL_DATABASE',
-                            value: podEnv.find((env) => env.name === 'MYSQL_DATABASE')?.value || '',
-                          },
-                          {
-                            name: 'BACKEND_TYPE',
-                            value: 's3',
-                          },
-                          {
-                            name: 'BACKEND_S3_REGION',
-                            value: 'eu-west-1',
-                          },
-                          {
-                            name: 'BACKEND_S3_ACCESS_KEY',
-                            valueFrom: {
-                              secretKeyRef: {
-                                name: 'ksnapshot-secret',
-                                key: 'AWS_ACCESS_KEY_ID',
-                              },
+          labels: labelFilters,
+        },
+        spec: {
+          schedule,
+          timeZone,
+          concurrencyPolicy: 'Forbid',
+          successfulJobsHistoryLimit: 1,
+          failedJobsHistoryLimit: 1,
+          jobTemplate: {
+            spec: {
+              backoffLimit: 0,
+              activeDeadlineSeconds: 3600,
+              template: {
+                spec: {
+                  restartPolicy: 'Never',
+                  containers: [
+                    {
+                      name: 'job',
+                      imagePullPolicy: 'Always',
+                      image: `ghcr.io/clickandmortar/ksnapshot-dumper-mysql-${version}:latest`,
+                      env: [
+                        {
+                          name: 'BACKEND_TYPE',
+                          value: 's3',
+                        },
+                        {
+                          name: 'BACKEND_S3_REGION',
+                          value: 'eu-west-1',
+                        },
+                        {
+                          name: 'BACKEND_S3_ACCESS_KEY',
+                          valueFrom: {
+                            secretKeyRef: {
+                              name: 'ksnapshot-secret',
+                              key: 'AWS_ACCESS_KEY_ID',
                             },
                           },
-                          {
-                            name: 'BACKEND_S3_SECRET_KEY',
-                            valueFrom: {
-                              secretKeyRef: {
-                                name: 'ksnapshot-secret',
-                                key: 'AWS_SECRET_ACCESS_KEY',
-                              },
+                        },
+                        {
+                          name: 'BACKEND_S3_SECRET_KEY',
+                          valueFrom: {
+                            secretKeyRef: {
+                              name: 'ksnapshot-secret',
+                              key: 'AWS_SECRET_ACCESS_KEY',
                             },
                           },
-                          {
-                            name: 'BACKEND_BUCKET',
-                            valueFrom: {
-                              configMapKeyRef: {
-                                name: 'ksnapshot-cm',
-                                key: 'S3_BUCKET',
-                              },
+                        },
+                        {
+                          name: 'BACKEND_BUCKET',
+                          valueFrom: {
+                            configMapKeyRef: {
+                              name: 'ksnapshot-cm',
+                              key: 'S3_BUCKET',
                             },
                           },
-                          {
-                            name: 'BACKEND_PATH',
-                            value: 'ksnapshot',
-                          },
-                        ],
-                        resources: {}, // TODO
-                      },
-                    ],
-                  },
+                        },
+                        {
+                          name: 'BACKEND_PATH',
+                          value: 'ksnapshot',
+                        },
+                      ],
+                      resources: {}, // TODO
+                    },
+                  ],
                 },
               },
             },
           },
-        }
-
-        if (!existingCronjob) {
-          console.log(`Creating CronJob ${cronjobName}`)
-          await k8sBatchApi.createNamespacedCronJob(ksnapshotNamespace, snapshotCronjob)
-        } else {
-          console.log(`Updating CronJob ${cronjobName}`)
-          await k8sBatchApi.replaceNamespacedCronJob(cronjobName, ksnapshotNamespace, snapshotCronjob)
-        }
+        },
       }
 
-      // TODO: Elasticsearch
+      if (type === 'mysql') {
+        version = version || defaultMysqlVersion
+        // @ts-ignore
+        snapshotCronjob.spec.jobTemplate.spec.template.spec.containers[0].image = `ghcr.io/clickandmortar/ksnapshot-dumper-mysql-${version}:latest`
+        snapshotCronjob.spec?.jobTemplate.spec?.template.spec?.containers[0].env?.push(
+          {
+            name: 'MYSQL_HOST',
+            value: `${service.metadata?.name}.${service.metadata?.namespace}.svc.cluster.local`,
+          },
+          {
+            name: 'MYSQL_PORT',
+            value: '3306', // TODO: make dynamic
+          },
+          {
+            name: 'MYSQL_USERNAME',
+            value: podEnv.find((env) => env.name === 'MYSQL_USER')?.value || '',
+          },
+          {
+            name: 'MYSQL_PASSWORD',
+            value: podEnv.find((env) => env.name === 'MYSQL_PASSWORD')?.value || '',
+          },
+          {
+            name: 'MYSQL_DATABASE',
+            value: podEnv.find((env) => env.name === 'MYSQL_DATABASE')?.value || '',
+          }
+        )
+      }
+
+      if (type === 'elasticsearch') {
+        // @ts-ignore
+        snapshotCronjob.spec.jobTemplate.spec.template.spec.containers[0].image = `ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:latest`
+        snapshotCronjob.spec?.jobTemplate.spec?.template.spec?.containers[0].env?.push(
+          {
+            name: 'ELASTICSEARCH_HOST',
+            value: `${service.metadata?.name}.${service.metadata?.namespace}.svc.cluster.local`,
+          },
+          {
+            name: 'ELASTICSEARCH_PORT',
+            value: '9200', // TODO: make dynamic
+          }
+        )
+      }
+
+      if (!existingCronjob) {
+        console.log(`Creating CronJob ${cronjobName}`)
+        await k8sBatchApi.createNamespacedCronJob(ksnapshotNamespace, snapshotCronjob)
+      } else {
+        console.log(`Updating CronJob ${cronjobName}`)
+        await k8sBatchApi.replaceNamespacedCronJob(cronjobName, ksnapshotNamespace, snapshotCronjob)
+      }
     }
   }
 
