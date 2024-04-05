@@ -149,7 +149,7 @@ const looper = async () => {
                       {
                         name: 'job',
                         imagePullPolicy: 'Always',
-                        image: `clickandmortar/ksnapshot-dumper:mysql-${version}`,
+                        image: `ghcr.io/clickandmortar/ksnapshot-dumper-mysql-${version}:latest`,
                         env: [
                           {
                             name: 'MYSQL_HOST',
