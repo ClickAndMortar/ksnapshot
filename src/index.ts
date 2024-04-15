@@ -138,7 +138,7 @@ const looper = async () => {
           jobTemplate: {
             spec: {
               backoffLimit: 0,
-              activeDeadlineSeconds: 3600,
+              activeDeadlineSeconds: 14400, // 4 hours
               template: {
                 spec: {
                   restartPolicy: 'Never',
