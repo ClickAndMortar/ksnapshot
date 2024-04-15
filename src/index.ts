@@ -227,6 +227,8 @@ const looper = async () => {
       }
 
       if (type === 'elasticsearch') {
+        const esLimit = annotations[getAnnotation('elasticsearch-limit')]
+
         // @ts-ignore
         snapshotCronjob.spec.jobTemplate.spec.template.spec.containers[0].image = `ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:latest`
         snapshotCronjob.spec?.jobTemplate.spec?.template.spec?.containers[0].env?.push(
@@ -239,6 +241,13 @@ const looper = async () => {
             value: '9200', // TODO: make dynamic
           }
         )
+
+        if (esLimit) {
+          snapshotCronjob.spec?.jobTemplate.spec?.template.spec?.containers[0].env?.push({
+            name: 'ELASTICDUMP_LIMIT',
+            value: String(esLimit),
+          })
+        }
       }
 
       if (!existingCronjob) {

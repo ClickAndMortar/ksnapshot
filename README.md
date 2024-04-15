@@ -18,13 +18,14 @@ kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main
 
 To schedule a snapshot, you may use the following annotations on a `Pod`: 
 
-| Annotation                             | Description                                     | Required | Default         |
-|----------------------------------------|-------------------------------------------------|----------|-----------------|
-| `ksnapshot.clickandmortar.fr/enabled`  | Enable snapshotting                             | Yes      | `false`         |
-| `ksnapshot.clickandmortar.fr/schedule` | Snapshot schedule                               | Yes      |                 |
-| `ksnapshot.clickandmortar.fr/timezone` | Snapshot schedule timezone                      | No       | `Etc/UTC`       |
-| `ksnapshot.clickandmortar.fr/type`     | Snapshot type (`mysql` or `elasticsearch`)      | Yes      |                 |
-| `ksnapshot.clickandmortar.fr/version`  | Data source main version (`mysql`: `5.7` or `8` | No       | `8` for `mysql` |
+| Annotation                                        | Description                                     | Required | Default         |
+|---------------------------------------------------|-------------------------------------------------|----------|-----------------|
+| `ksnapshot.clickandmortar.fr/enabled`             | Enable snapshotting                             | Yes      | `false`         |
+| `ksnapshot.clickandmortar.fr/schedule`            | Snapshot schedule                               | Yes      |                 |
+| `ksnapshot.clickandmortar.fr/timezone`            | Snapshot schedule timezone                      | No       | `Etc/UTC`       |
+| `ksnapshot.clickandmortar.fr/type`                | Snapshot type (`mysql` or `elasticsearch`)      | Yes      |                 |
+| `ksnapshot.clickandmortar.fr/version`             | Data source main version (`mysql`: `5.7` or `8` | No       | `8` for `mysql` |
+| `ksnapshot.clickandmortar.fr/elasticsearch-limit` | Page size for Elasticsearch dump                | No       | `1000`          |
 
 > [!WARNING]
 > All values in annotations must be strings.

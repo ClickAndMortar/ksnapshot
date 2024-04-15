@@ -8,8 +8,8 @@ DUMP_DIRECTORY="/tmp/dumps"
 
 mkdir -p ${DUMP_DIRECTORY}
 
-ELASTICDUMP_OPTIONS="--fsCompress --limit 500 ${ELASTICDUMP_OPTIONS}"
 ELASTICDUMP_TYPES="index settings analyzer data mapping policy alias template"
+ELASTICDUMP_LIMIT="${ELASTICDUMP_LIMIT:-1000}"
 
 ELASTICSEARCH_URL="http://${ELASTICSEARCH_HOST}:${ELASTICSEARCH_PORT}"
 ELASTICSEARCH_VERSION="$(curl -sSL ${ELASTICSEARCH_URL} | jq -r ".version.number")"
@@ -28,7 +28,9 @@ for TYPE in ${ELASTICDUMP_TYPES}; do
         --input=${ELASTICSEARCH_URL} \
         --output=${DUMP_DIRECTORY}/${DUMP_PREFIX}-${TYPE}${DUMP_SUFFIX} \
         --type=${TYPE} \
-        ${ELASTICDUMP_OPTIONS} || true # Avoid failure due to set -e
+        --noRefresh \
+        --fsCompress \
+        --limit=${ELASTICDUMP_LIMIT} || true # Avoid failure due to set -e
 
     echo "Dumping type [${TYPE}]... Done"
 done
