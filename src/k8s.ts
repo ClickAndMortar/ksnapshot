@@ -19,21 +19,18 @@ export const k8sBatchApi = kc.makeApiClient(k8s.BatchV1Api)
 export const k8sAppsApi = kc.makeApiClient(k8s.AppsV1Api)
 
 export default {
-  findJobs(labels: any) {
-    return k8sBatchApi.listJobForAllNamespaces(
-      undefined,
-      undefined,
-      undefined,
-      qs.stringify(labels, { encodeValuesOnly: true })
-    )
+  findJobs(labels: Record<string, string>) {
+    return k8sBatchApi.listJobForAllNamespaces({
+      labelSelector: qs.stringify(labels, { encodeValuesOnly: true }),
+    })
   },
   deleteJob(namespace: string, name: string) {
-    return k8sBatchApi.deleteNamespacedJob(name, namespace)
+    return k8sBatchApi.deleteNamespacedJob({ name, namespace })
   },
-  deleteTerminatedJobs(labels: any) {
+  deleteTerminatedJobs(labels: Record<string, string>) {
     const since = 86400
     this.findJobs(labels).then((res) => {
-      const jobs = res.body.items
+      const jobs = res.items
       jobs.forEach((job: k8s.V1Job) => {
         const namespace = job.metadata?.namespace as string
         const jobName = job.metadata?.name as string

@@ -23,8 +23,8 @@ To schedule a snapshot, you may use the following annotations on a `Pod`:
 | `ksnapshot.clickandmortar.fr/enabled`             | Enable snapshotting                             | Yes      | `false`         |
 | `ksnapshot.clickandmortar.fr/schedule`            | Snapshot schedule                               | Yes      |                 |
 | `ksnapshot.clickandmortar.fr/timezone`            | Snapshot schedule timezone                      | No       | `Etc/UTC`       |
-| `ksnapshot.clickandmortar.fr/type`                | Snapshot type (`mysql` or `elasticsearch`)      | Yes      |                 |
-| `ksnapshot.clickandmortar.fr/version`             | Data source main version (`mysql`: `5.7` or `8` | No       | `8` for `mysql` |
+| `ksnapshot.clickandmortar.fr/type`                | Snapshot type (`mysql`, `elasticsearch` or `postgresql`) | Yes      |                 |
+| `ksnapshot.clickandmortar.fr/version`             | Data source main version (`mysql`: `5.7` or `8`, `postgresql`: `16`) | No       | `8` for `mysql`, `16` for `postgresql` |
 | `ksnapshot.clickandmortar.fr/elasticsearch-limit` | Page size for Elasticsearch dump                | No       | `1000`          |
 
 > [!WARNING]
@@ -45,6 +45,8 @@ To schedule a snapshot, you may use the following annotations on a `Pod`:
 * Elasticsearch
   * [ ] Create dumper image
   * [ ] Add support
+* PostgreSQL
+  * [x] Add support (pg_dump, PostgreSQL 16+)
 * Persistent Volumes backuping
   * [ ] Add support
   * [ ] Handle conditions (i.e. files modified since)

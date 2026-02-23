@@ -1,12 +1,12 @@
-name: Elasticsearch dumper CI/CD Workflow
+name: PostgreSQL dumper CI/CD Workflow
 
 on:
   push:
     branches:
       - main
     paths:
-      - '.github/workflows/elasticsearch-dumper.yaml'
-      - 'dumpers/elasticsearch/**'
+      - '.github/workflows/postgresql-dumper.yaml'
+      - 'dumpers/postgresql/**'
 
 jobs:
   build:
@@ -29,10 +29,10 @@ jobs:
         id: sha
         run: echo "short=$(echo ${GITHUB_SHA::8})" >> $GITHUB_OUTPUT
 
-      - name: Build and push Docker image for Elasticsearch dumper
+      - name: Build and push Docker image for PostgreSQL 16 dumper
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: dumpers/elasticsearch/Dockerfile
+          file: dumpers/postgresql/16/Dockerfile
           push: true
-          tags: ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:${{ steps.sha.outputs.short }},ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:latest
+          tags: ghcr.io/clickandmortar/ksnapshot-dumper-postgresql-16:${{ steps.sha.outputs.short }},ghcr.io/clickandmortar/ksnapshot-dumper-postgresql-16:latest

@@ -6,6 +6,7 @@ import qs from 'qs'
 const LOOP_INTERVAL_MS: number = 60_000
 
 const defaultMysqlVersion: string = '8'
+const defaultPostgresqlVersion: string = '16'
 
 const ksnapshotNamespace: string = 'ksnapshot'
 
@@ -18,12 +19,9 @@ const looper = async () => {
 
   const cronjobOwnerAnnotation = getAnnotation('owner')
 
-  const { body: cronjobList } = await k8sBatchApi.listCronJobForAllNamespaces(
-    undefined,
-    undefined,
-    undefined,
-    labelSelector
-  )
+  const cronjobList = await k8sBatchApi.listCronJobForAllNamespaces({
+    labelSelector,
+  })
 
   for (const cronjob of cronjobList.items) {
     const annotations = cronjob.metadata?.annotations
@@ -34,7 +32,7 @@ const looper = async () => {
     }
   }
 
-  const { body: podList } = await k8sCoreApi.listPodForAllNamespaces()
+  const podList = await k8sCoreApi.listPodForAllNamespaces()
 
   for (const pod of podList.items) {
     if (pod.status?.phase !== 'Running') {
@@ -63,7 +61,7 @@ const looper = async () => {
 
         if (ownerKind === 'ReplicaSet') {
           // Get Replicaset
-          const { body: rs } = await k8sAppsApi.readNamespacedReplicaSet(ownerName, namespace)
+          const rs = await k8sAppsApi.readNamespacedReplicaSet({ name: ownerName, namespace })
           const rsOwnerReferences = rs.metadata?.ownerReferences
           if (rsOwnerReferences) {
             const rsOwner = rsOwnerReferences[0]
@@ -71,7 +69,10 @@ const looper = async () => {
             const rsOwnerName = rsOwner.name
 
             if (rsOwnerKind === 'Deployment') {
-              const { body: deployment } = await k8sAppsApi.readNamespacedDeployment(rsOwnerName, namespace)
+              const deployment = await k8sAppsApi.readNamespacedDeployment({
+                name: rsOwnerName,
+                namespace,
+              })
               cronjobOwner = `${deployment.metadata?.namespace}/${deployment.metadata?.name}`
             }
           }
@@ -94,7 +95,7 @@ const looper = async () => {
       }
 
       // Find service pointing at Pod
-      const { body: serviceList } = await k8sCoreApi.listNamespacedService(namespace)
+      const serviceList = await k8sCoreApi.listNamespacedService({ namespace })
       const service = serviceList.items.find((service) => {
         return Object.entries(service.spec?.selector || {}).every(([key, value]) => {
           return pod.metadata?.labels?.[key] === value
@@ -198,11 +199,12 @@ const looper = async () => {
         },
       }
 
+      const container = snapshotCronjob.spec!.jobTemplate.spec!.template.spec!.containers[0]
+
       if (type === 'mysql') {
         version = version || defaultMysqlVersion
-        // @ts-ignore
-        snapshotCronjob.spec.jobTemplate.spec.template.spec.containers[0].image = `ghcr.io/clickandmortar/ksnapshot-dumper-mysql-${version}:latest`
-        snapshotCronjob.spec?.jobTemplate.spec?.template.spec?.containers[0].env?.push(
+        container.image = `ghcr.io/clickandmortar/ksnapshot-dumper-mysql-${version}:latest`
+        container.env!.push(
           {
             name: 'MYSQL_HOST',
             value: `${service.metadata?.name}.${service.metadata?.namespace}.svc.cluster.local`,
@@ -229,9 +231,8 @@ const looper = async () => {
       if (type === 'elasticsearch') {
         const esLimit = annotations[getAnnotation('elasticsearch-limit')]
 
-        // @ts-ignore
-        snapshotCronjob.spec.jobTemplate.spec.template.spec.containers[0].image = `ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:latest`
-        snapshotCronjob.spec?.jobTemplate.spec?.template.spec?.containers[0].env?.push(
+        container.image = `ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:latest`
+        container.env!.push(
           {
             name: 'ELASTICSEARCH_HOST',
             value: `${service.metadata?.name}.${service.metadata?.namespace}.svc.cluster.local`,
@@ -243,19 +244,53 @@ const looper = async () => {
         )
 
         if (esLimit) {
-          snapshotCronjob.spec?.jobTemplate.spec?.template.spec?.containers[0].env?.push({
+          container.env!.push({
             name: 'ELASTICDUMP_LIMIT',
             value: String(esLimit),
           })
         }
       }
 
+      if (type === 'postgresql') {
+        version = version || defaultPostgresqlVersion
+        container.image = `ghcr.io/clickandmortar/ksnapshot-dumper-postgresql-${version}:latest`
+        container.env!.push(
+          {
+            name: 'POSTGRESQL_HOST',
+            value: `${service.metadata?.name}.${service.metadata?.namespace}.svc.cluster.local`,
+          },
+          {
+            name: 'POSTGRESQL_PORT',
+            value: '5432', // TODO: make dynamic
+          },
+          {
+            name: 'POSTGRESQL_USERNAME',
+            value: podEnv.find((env) => env.name === 'POSTGRES_USER')?.value || '',
+          },
+          {
+            name: 'POSTGRESQL_PASSWORD',
+            value: podEnv.find((env) => env.name === 'POSTGRES_PASSWORD')?.value || '',
+          },
+          {
+            name: 'POSTGRESQL_DATABASE',
+            value: podEnv.find((env) => env.name === 'POSTGRES_DB')?.value || '',
+          }
+        )
+      }
+
       if (!existingCronjob) {
         console.log(`Creating CronJob ${cronjobName}`)
-        await k8sBatchApi.createNamespacedCronJob(ksnapshotNamespace, snapshotCronjob)
+        await k8sBatchApi.createNamespacedCronJob({
+          namespace: ksnapshotNamespace,
+          body: snapshotCronjob,
+        })
       } else {
         console.log(`Updating CronJob ${cronjobName}`)
-        await k8sBatchApi.replaceNamespacedCronJob(cronjobName, ksnapshotNamespace, snapshotCronjob)
+        await k8sBatchApi.replaceNamespacedCronJob({
+          name: cronjobName,
+          namespace: ksnapshotNamespace,
+          body: snapshotCronjob,
+        })
       }
     }
   }
@@ -264,12 +299,9 @@ const looper = async () => {
   const cronjobOwnersToRemove = existingCronjobOwners.filter((owner) => !activeCronjobOwners.includes(owner))
   for (const ownerToRemove of cronjobOwnersToRemove) {
     // Remove cronjobs with annotation owner
-    const { body: cronjobList } = await k8sBatchApi.listCronJobForAllNamespaces(
-      undefined,
-      undefined,
-      undefined,
-      labelSelector
-    )
+    const cronjobList = await k8sBatchApi.listCronJobForAllNamespaces({
+      labelSelector,
+    })
 
     for (const item of cronjobList.items) {
       const annotations = item.metadata?.annotations
@@ -277,11 +309,15 @@ const looper = async () => {
 
       if (owner === ownerToRemove) {
         console.log(`Deleting orphan CronJob ${item.metadata?.namespace}/${item.metadata?.name}`)
-        await k8sBatchApi.deleteNamespacedCronJob(item.metadata?.name as string, item.metadata?.namespace as string)
+        await k8sBatchApi.deleteNamespacedCronJob({
+          name: item.metadata?.name as string,
+          namespace: item.metadata?.namespace as string,
+        })
       }
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const jobLabelFilters = { 'app.kubernetes.io/managed-by': 'ksnapshot' }
 
   // TODO: delete terminated jobs
