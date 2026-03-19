@@ -10,6 +10,9 @@ RUN npm install -g elasticdump@^6.10.0 semver@^7.6.0
 RUN wget -q https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -O /usr/local/bin/jq \
     && chmod +x /usr/local/bin/jq
 
+RUN wget -q https://github.com/FiloSottile/age/releases/download/v1.0.0-beta7/age-v1.0.0-beta7-linux-amd64.tar.gz -O /tmp/age.tgz \
+    && tar -C /usr/local/bin/ --strip-components=1 -zxf /tmp/age.tgz age/age
+
 COPY /dumpers/elasticsearch/dump.sh /dump.sh
 
 CMD ["/dump.sh"]

@@ -3,17 +3,6 @@ kind: ClusterRole
 metadata:
   name: ksnapshot
 rules:
-  - apiGroups:
-      - batch
-    resources:
-      - cronjobs
-      - jobs
-    verbs:
-      - create
-      - update
-      - get
-      - list
-      - delete
   - apiGroups: [""]
     resources:
       - pods

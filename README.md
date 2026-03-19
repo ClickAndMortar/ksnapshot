@@ -6,30 +6,93 @@
 
 A Kubernetes operator that takes scheduled snapshots of your MySQL, PostgreSQL, and Elasticsearch databases.
 
-Annotate your pods with a cron schedule, and ksnapshot creates the CronJobs, runs the dumps, compresses them, and uploads to S3.
+Annotate your pods with a cron schedule, and ksnapshot creates backup CronJobs, runs the dumps, compresses them, and uploads them to S3-compatible storage.
 
 Compatible with AWS S3, Cloudflare R2, MinIO, DigitalOcean Spaces, and other S3-compatible providers.
 
 ## How it works
 
-The operator polls running pods every 60 seconds. For each pod with ksnapshot annotations, it resolves the owner chain (Pod → ReplicaSet → Deployment), finds the matching Service, and creates or updates a CronJob in the `ksnapshot` namespace. When annotated pods disappear, the corresponding CronJobs get cleaned up.
+The operator polls running pods every 60 seconds. For each annotated workload, it resolves the owner chain (Pod → ReplicaSet → Deployment when needed), requires exactly one selector-based Service for that workload, and creates or updates a CronJob in the operator namespace. Backup jobs run under a dedicated ServiceAccount with no Kubernetes RBAC.
+
+MySQL and PostgreSQL credential discovery supports:
+
+- literal `env` values
+- `env.valueFrom` references
+- `envFrom` references
 
 Dumps are organized in S3 by date: `/<path>/YYYY/MM/DD/<type>/`.
 
+```mermaid
+flowchart LR
+    subgraph Kubernetes Cluster
+        OP[ksnapshot operator]
+        subgraph App Namespace
+            P[Pod<br/>with annotations]
+            RS[ReplicaSet]
+            D[Deployment]
+            S[Service]
+            P -.->|ownerRef| RS
+            RS -.->|ownerRef| D
+            S -.->|selector| P
+        end
+        subgraph Control Namespace
+            CJ[CronJob]
+            J[Job]
+            DMP[Dumper Pod<br/>mysql / pg / es]
+            BSA[Backup SA]
+            SEC[Secret<br/>optional]
+            CM[ConfigMap]
+            CJ -->|creates on schedule| J
+            J -->|runs| DMP
+            BSA -.->|identity| DMP
+            SEC -.->|env refs| DMP
+            CM -.->|env refs| DMP
+        end
+    end
+    subgraph S3-compatible Storage
+        B[("Bucket<br/>/path/YYYY/MM/DD/type/")]
+    end
+    OP -->|"① poll pods (60s)"| P
+    OP -->|"② resolve owner chain"| D
+    OP -->|"③ require one matching Service"| S
+    OP -->|"④ create / update in operator namespace"| CJ
+    DMP -->|"⑤ dump → gzip → encrypt? → upload"| B
+    DMP -->|"connects via service"| S
+```
+
 ## Installation
+
+### Helm (recommended)
+
+```bash
+helm repo add clickandmortar https://clickandmortar.github.io/ksnapshot
+helm repo update
+helm install ksnapshot clickandmortar/ksnapshot \
+  -n ksnapshot --create-namespace \
+  --set s3.bucket=my-backup-bucket
+```
+
+See [chart README](chart/ksnapshot/README.md) for all values and credential options.
+
+### kubectl
 
 ```shell
 kubectl create namespace ksnapshot
 
 kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-sa.yaml
+kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-backup-sa.yaml
 kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-cr.yaml
 kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-crb.yaml
+kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-role.yaml
+kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-rb.yaml
 kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-deployment.yaml
 ```
 
+The operator uses its own namespace as the control namespace. Create the S3 ConfigMap and optional Secret in that same namespace.
+
 ## Storage configuration
 
-ksnapshot reads storage credentials from a Secret and bucket configuration from a ConfigMap, both in the `ksnapshot` namespace.
+ksnapshot reads bucket configuration from a ConfigMap in the operator namespace. S3 credentials can come either from a Secret in that namespace or from the dedicated backup ServiceAccount identity (for example IRSA / Workload Identity).
 
 ### AWS S3
 
@@ -83,16 +146,16 @@ You can generate R2 API tokens in the Cloudflare dashboard under **R2 > Manage R
 
 ### Other S3-compatible providers
 
-For MinIO, DigitalOcean Spaces, Backblaze B2, or similar: set `S3_ENDPOINT` to the provider's endpoint URL and put the credentials in the Secret.
+For MinIO, DigitalOcean Spaces, Backblaze B2, or similar: set `S3_ENDPOINT` to the provider's endpoint URL and either put the credentials in the Secret or annotate the backup-job ServiceAccount with your cloud identity configuration.
 
 | ConfigMap key | Description | Required |
 |--------------|-------------|----------|
 | `S3_BUCKET` | Bucket name | Yes |
-| `S3_REGION` | AWS region (e.g. `eu-west-1`). When set, the endpoint defaults to `https://s3.<region>.amazonaws.com/` | No |
+| `S3_REGION` | AWS region (for example `eu-west-1`) | No |
 | `S3_ENDPOINT` | Custom S3 endpoint URL for non-AWS providers. Takes precedence over `S3_REGION` | No |
 
 > [!NOTE]
-> Set either `S3_REGION` (for AWS) or `S3_ENDPOINT` (for everything else). If both are set, `S3_ENDPOINT` is used.
+> Set either `S3_REGION` or `S3_ENDPOINT`. If both are set, `S3_ENDPOINT` is used.
 
 ## Usage
 
@@ -106,6 +169,12 @@ metadata:
     ksnapshot.clickandmortar.fr/schedule: "0 3 * * *"
 ```
 
+Requirements:
+
+- The annotated workload must be exposed by exactly one selector-based Service in its namespace.
+- MySQL and PostgreSQL credentials must come from `env`, `env.valueFrom`, or `envFrom` on the source container.
+- Backups are created once per workload owner, not once per pod replica.
+
 ### Annotations
 
 | Annotation | Description | Required | Default |
@@ -116,6 +185,8 @@ metadata:
 | `ksnapshot.clickandmortar.fr/timezone` | Timezone for the schedule | No | `Etc/UTC` |
 | `ksnapshot.clickandmortar.fr/version` | Database version (`5.7` or `8` for mysql, `16` for postgresql) | No | `8` (mysql), `16` (postgresql) |
 | `ksnapshot.clickandmortar.fr/elasticsearch-limit` | Page size for Elasticsearch dumps | No | `1000` |
+| `ksnapshot.clickandmortar.fr/encryption-enabled` | Enable [age](https://github.com/FiloSottile/age) encryption before upload | No | `false` |
+| `ksnapshot.clickandmortar.fr/encryption-recipient` | age recipient public key (required when encryption is enabled) | No | |
 
 > [!WARNING]
 > All annotation values must be strings. Wrap numbers and booleans in quotes.
@@ -128,7 +199,24 @@ metadata:
 | PostgreSQL | `pg_dump` | 16 |
 | Elasticsearch | `elasticdump` (auto-detects version) | Auto |
 
-Dumps are gzip-compressed before upload. MySQL and PostgreSQL dumpers support optional [age](https://github.com/FiloSottile/age) encryption.
+Dumps are gzip-compressed before upload. All dumpers support optional [age](https://github.com/FiloSottile/age) encryption.
+
+## Encryption
+
+ksnapshot supports client-side encryption using [age](https://github.com/FiloSottile/age). When enabled, dumps are encrypted after compression and before upload to S3, producing `.age` suffixed files.
+
+```yaml
+metadata:
+  annotations:
+    ksnapshot.clickandmortar.fr/encryption-enabled: "true"
+    ksnapshot.clickandmortar.fr/encryption-recipient: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
+```
+
+To decrypt a snapshot:
+
+```bash
+age -d -i key.txt snapshot.sql.gz.age > snapshot.sql.gz
+```
 
 ## Development
 
@@ -137,6 +225,7 @@ nvm use           # Node 22
 npm install
 npm run dev       # Watch mode
 npm run lint      # ESLint
+npm test          # Unit + dumper tests
 ```
 
 Docker images:
@@ -150,7 +239,6 @@ make push         # docker push clickandmortar/ksnapshot:latest
 
 - [ ] Debugging via `debug` package
 - [ ] Prometheus metrics
-- [ ] Encryption with AWS KMS before upload
 - [ ] PVC / PV support for large dumps
 - [ ] Configurable resource requests/limits on dumpers
 - [ ] Per-table MySQL dumps

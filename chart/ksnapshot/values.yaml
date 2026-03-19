@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/clickandmortar/ksnapshot
   tag: latest
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 nameOverride: ""
@@ -11,10 +11,26 @@ fullnameOverride: ""
 
 serviceAccount:
   create: true
+  name: ""
   annotations: {}
+
+backupJob:
+  imagePullPolicy: IfNotPresent
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
 
 rbac:
   create: true
+
+dumperImages:
+  mysql:
+    v5_7: ""
+    v8: ""
+  postgresql:
+    v16: ""
+  elasticsearch: ""
 
 s3:
   bucket: ""

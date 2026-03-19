@@ -7,17 +7,25 @@ and create CronJobs to perform database snapshots.
 
 A ConfigMap `ksnapshot-cm` has been created with:
   S3_BUCKET: {{ .Values.s3.bucket | default "(not set)" }}
+{{- else }}
+
+The operator will read backup configuration from ConfigMap `{{ include "ksnapshot.configMapName" . }}`.
 {{- end }}
 
 {{- if .Values.secret.create }}
 
 A Secret `ksnapshot-secret` has been created from the provided AWS credentials.
+{{- else if include "ksnapshot.secretName" . }}
+
+The chart expects a Secret named `{{ include "ksnapshot.secretName" . }}` to exist in the
+{{ .Release.Namespace }} namespace with keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY.
 {{- else }}
 
-The chart expects a Secret named `{{ .Values.existingSecret }}` to exist in the
-{{ .Release.Namespace }} namespace with keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY.
-Alternatively, use IRSA/Workload Identity via serviceAccount.annotations.
+No Secret is configured. Attach IRSA/Workload Identity annotations to the backup-job
+ServiceAccount via `backupJob.serviceAccount.annotations`.
 {{- end }}
+
+Backup CronJobs will run as ServiceAccount `{{ include "ksnapshot.backupJobServiceAccountName" . }}`.
 
 To annotate a pod for snapshots:
 

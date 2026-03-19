@@ -1,11 +1,14 @@
 {
+  "name": "ksnapshot",
+  "version": "0.1.0",
   "dependencies": {
     "@kubernetes/client-node": "^1.4.0",
     "qs": "^6.14.0"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "test": "node --import tsx --test src/controller.test.ts src/dumpers.test.ts"
   },
   "type": "module",
   "license": "UNLICENSED",

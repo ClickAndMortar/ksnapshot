@@ -58,3 +58,75 @@ Create the name of the service account to use.
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Create the name of the backup-job service account to use.
+*/}}
+{{- define "ksnapshot.backupJobServiceAccountName" -}}
+{{- if .Values.backupJob.serviceAccount.create }}
+{{- default (printf "%s-backup" (include "ksnapshot.fullname" .)) .Values.backupJob.serviceAccount.name }}
+{{- else }}
+{{- default (printf "%s-backup" (include "ksnapshot.fullname" .)) .Values.backupJob.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create the configmap name used by backup jobs.
+*/}}
+{{- define "ksnapshot.configMapName" -}}
+{{- if .Values.existingConfigMap -}}
+{{- .Values.existingConfigMap -}}
+{{- else -}}
+ksnapshot-cm
+{{- end -}}
+{{- end }}
+
+{{/*
+Create the secret name used by backup jobs.
+*/}}
+{{- define "ksnapshot.secretName" -}}
+{{- if .Values.secret.create -}}
+ksnapshot-secret
+{{- else -}}
+{{- .Values.existingSecret -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Resolve the full image reference for a dumper.
+*/}}
+{{- define "ksnapshot.defaultImageTag" -}}
+{{- default .Chart.AppVersion .Values.image.tag }}
+{{- end }}
+
+{{- define "ksnapshot.mysql57Image" -}}
+{{- if .Values.dumperImages.mysql.v5_7 -}}
+{{- .Values.dumperImages.mysql.v5_7 -}}
+{{- else -}}
+{{- printf "ghcr.io/clickandmortar/ksnapshot-dumper-mysql-5.7:%s" (include "ksnapshot.defaultImageTag" .) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "ksnapshot.mysql8Image" -}}
+{{- if .Values.dumperImages.mysql.v8 -}}
+{{- .Values.dumperImages.mysql.v8 -}}
+{{- else -}}
+{{- printf "ghcr.io/clickandmortar/ksnapshot-dumper-mysql-8:%s" (include "ksnapshot.defaultImageTag" .) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "ksnapshot.postgresql16Image" -}}
+{{- if .Values.dumperImages.postgresql.v16 -}}
+{{- .Values.dumperImages.postgresql.v16 -}}
+{{- else -}}
+{{- printf "ghcr.io/clickandmortar/ksnapshot-dumper-postgresql-16:%s" (include "ksnapshot.defaultImageTag" .) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "ksnapshot.elasticsearchImage" -}}
+{{- if .Values.dumperImages.elasticsearch -}}
+{{- .Values.dumperImages.elasticsearch -}}
+{{- else -}}
+{{- printf "ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:%s" (include "ksnapshot.defaultImageTag" .) -}}
+{{- end -}}
+{{- end }}

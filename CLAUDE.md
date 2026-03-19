@@ -54,6 +54,8 @@ Annotation prefix: `ksnapshot.clickandmortar.fr/`
 | `timezone` | No | Default: `Etc/UTC` |
 | `version` | No | Database version (mysql default: `8`, postgresql default: `16`) |
 | `elasticsearch-limit` | No | Elasticdump page size (default: `1000`) |
+| `encryption-enabled` | No | Enable age encryption before upload (default: `false`) |
+| `encryption-recipient` | No | age recipient public key (required when encryption is enabled) |
 
 ### Kubernetes Resources (`manifests/`)
 - Operator runs in `ksnapshot` namespace with a dedicated ServiceAccount, ClusterRole, and ClusterRoleBinding

@@ -22,18 +22,59 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      automountServiceAccountToken: true
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
       serviceAccountName: {{ include "ksnapshot.serviceAccountName" . }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
           env:
             - name: MODE
               value: cluster
+            - name: CONTROL_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: BACKUP_CONFIGMAP_NAME
+              value: {{ include "ksnapshot.configMapName" . | quote }}
+            - name: BACKUP_SECRET_NAME
+              value: {{ include "ksnapshot.secretName" . | quote }}
+            - name: BACKUP_JOB_SERVICE_ACCOUNT_NAME
+              value: {{ include "ksnapshot.backupJobServiceAccountName" . | quote }}
+            - name: BACKUP_IMAGE_PULL_POLICY
+              value: {{ .Values.backupJob.imagePullPolicy | quote }}
+            - name: MYSQL_DUMPER_IMAGE_5_7
+              value: {{ include "ksnapshot.mysql57Image" . | quote }}
+            - name: MYSQL_DUMPER_IMAGE_8
+              value: {{ include "ksnapshot.mysql8Image" . | quote }}
+            - name: POSTGRESQL_DUMPER_IMAGE_16
+              value: {{ include "ksnapshot.postgresql16Image" . | quote }}
+            - name: ELASTICSEARCH_DUMPER_IMAGE
+              value: {{ include "ksnapshot.elasticsearchImage" . | quote }}
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

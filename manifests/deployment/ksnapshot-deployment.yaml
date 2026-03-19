@@ -15,11 +15,52 @@ spec:
       labels:
         app: ksnapshot
     spec:
+      automountServiceAccountToken: true
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
       serviceAccountName: ksnapshot-sa
+      volumes:
+        - name: tmp
+          emptyDir: {}
       containers:
         - image: ghcr.io/clickandmortar/ksnapshot:latest
           name: ksnapshot
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
           env:
             - name: MODE
               value: cluster
+            - name: CONTROL_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: BACKUP_CONFIGMAP_NAME
+              value: ksnapshot-cm
+            - name: BACKUP_SECRET_NAME
+              value: ksnapshot-secret
+            - name: BACKUP_JOB_SERVICE_ACCOUNT_NAME
+              value: ksnapshot-backup-sa
+            - name: BACKUP_IMAGE_PULL_POLICY
+              value: IfNotPresent
+            - name: MYSQL_DUMPER_IMAGE_5_7
+              value: ghcr.io/clickandmortar/ksnapshot-dumper-mysql-5.7:latest
+            - name: MYSQL_DUMPER_IMAGE_8
+              value: ghcr.io/clickandmortar/ksnapshot-dumper-mysql-8:latest
+            - name: POSTGRESQL_DUMPER_IMAGE_16
+              value: ghcr.io/clickandmortar/ksnapshot-dumper-postgresql-16:latest
+            - name: ELASTICSEARCH_DUMPER_IMAGE
+              value: ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:latest
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
