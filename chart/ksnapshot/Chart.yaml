@@ -2,8 +2,8 @@ apiVersion: v2
 name: ksnapshot
 description: A Kubernetes operator that watches for annotated pods and creates CronJobs for database snapshots (MySQL, Elasticsearch, PostgreSQL) uploaded to S3
 type: application
-version: 0.2.2
-appVersion: "0.2.2"
+version: 0.2.3
+appVersion: "0.2.3"
 home: https://github.com/clickandmortar/ksnapshot
 sources:
   - https://github.com/clickandmortar/ksnapshot
