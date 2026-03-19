@@ -155,7 +155,23 @@ const looper = async () => {
                         },
                         {
                           name: 'BACKEND_S3_REGION',
-                          value: 'eu-west-1',
+                          valueFrom: {
+                            configMapKeyRef: {
+                              name: 'ksnapshot-cm',
+                              key: 'S3_REGION',
+                              optional: true,
+                            },
+                          },
+                        },
+                        {
+                          name: 'BACKEND_S3_ENDPOINT',
+                          valueFrom: {
+                            configMapKeyRef: {
+                              name: 'ksnapshot-cm',
+                              key: 'S3_ENDPOINT',
+                              optional: true,
+                            },
+                          },
                         },
                         {
                           name: 'BACKEND_S3_ACCESS_KEY',

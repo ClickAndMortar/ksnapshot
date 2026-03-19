@@ -1,0 +1,41 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/clickandmortar/ksnapshot
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+rbac:
+  create: true
+
+s3:
+  bucket: ""
+  region: ""
+  endpoint: ""
+
+# Option A: let Helm create the secret
+secret:
+  create: false
+  awsAccessKeyId: ""
+  awsSecretAccessKey: ""
+
+# Option B: use an existing secret (default)
+existingSecret: "ksnapshot-secret"
+
+# Use an existing configmap instead of creating one
+existingConfigMap: ""
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}

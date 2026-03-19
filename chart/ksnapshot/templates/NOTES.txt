@@ -1,0 +1,27 @@
+ksnapshot has been installed in namespace {{ .Release.Namespace }}.
+
+The operator will watch for pods with `ksnapshot.clickandmortar.fr/*` annotations
+and create CronJobs to perform database snapshots.
+
+{{- if not .Values.existingConfigMap }}
+
+A ConfigMap `ksnapshot-cm` has been created with:
+  S3_BUCKET: {{ .Values.s3.bucket | default "(not set)" }}
+{{- end }}
+
+{{- if .Values.secret.create }}
+
+A Secret `ksnapshot-secret` has been created from the provided AWS credentials.
+{{- else }}
+
+The chart expects a Secret named `{{ .Values.existingSecret }}` to exist in the
+{{ .Release.Namespace }} namespace with keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY.
+Alternatively, use IRSA/Workload Identity via serviceAccount.annotations.
+{{- end }}
+
+To annotate a pod for snapshots:
+
+  kubectl annotate pod <pod-name> \
+    ksnapshot.clickandmortar.fr/enabled="true" \
+    ksnapshot.clickandmortar.fr/schedule="0 2 * * *" \
+    ksnapshot.clickandmortar.fr/type="mysql"

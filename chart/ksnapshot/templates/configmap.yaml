@@ -1,0 +1,17 @@
+{{- if not .Values.existingConfigMap -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ksnapshot-cm
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ksnapshot.labels" . | nindent 4 }}
+data:
+  S3_BUCKET: {{ .Values.s3.bucket | quote }}
+  {{- if .Values.s3.region }}
+  S3_REGION: {{ .Values.s3.region | quote }}
+  {{- end }}
+  {{- if .Values.s3.endpoint }}
+  S3_ENDPOINT: {{ .Values.s3.endpoint | quote }}
+  {{- end }}
+{{- end }}
