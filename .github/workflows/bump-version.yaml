@@ -56,7 +56,10 @@ jobs:
       - name: Push
         run: git push origin main --follow-tags
 
+      - name: Wait for push propagation
+        run: sleep 5
+
       - name: Trigger release workflow
-        run: gh workflow run release.yaml --field tag="v${{ steps.version.outputs.version }}"
+        run: gh workflow run release.yaml --ref main --field tag="v${{ steps.version.outputs.version }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
