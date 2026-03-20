@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+export HOME=/tmp
+
 : "${ELASTICSEARCH_HOST:?ELASTICSEARCH_HOST is required}"
 : "${ELASTICSEARCH_PORT:?ELASTICSEARCH_PORT is required}"
 
