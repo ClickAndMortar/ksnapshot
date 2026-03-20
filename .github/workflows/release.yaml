@@ -1,9 +1,6 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -16,7 +13,7 @@ permissions:
   packages: write
 
 env:
-  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  RELEASE_TAG: ${{ inputs.tag }}
 
 jobs:
   build-images:
@@ -64,7 +61,7 @@ jobs:
             ${{ matrix.image }}:${{ steps.version.outputs.version }}
             ${{ matrix.image }}:latest
 
-  helm-release:
+  release:
     runs-on: ubuntu-latest
     needs: build-images
     steps:
@@ -91,11 +88,28 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
 
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1
-        with:
-          charts_dir: chart
-          skip_existing: true
-        env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Package chart
+        run: helm package chart/ksnapshot -d .cr-release-packages
 
+      - name: Extract version
+        id: version
+        run: echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release with chart
+        run: |
+          gh release create "${RELEASE_TAG}" \
+            --generate-notes \
+            .cr-release-packages/ksnapshot-${{ steps.version.outputs.version }}.tgz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Helm repo index
+        run: |
+          git worktree add gh-pages-ws gh-pages
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}"
+          helm repo index .cr-release-packages --url "${RELEASE_URL}" --merge gh-pages-ws/index.yaml
+          cp .cr-release-packages/index.yaml gh-pages-ws/index.yaml
+          cd gh-pages-ws
+          git add index.yaml
+          git commit -m "Update index.yaml for ${RELEASE_TAG}"
+          git push origin gh-pages
