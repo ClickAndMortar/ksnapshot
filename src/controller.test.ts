@@ -5,6 +5,7 @@ import {
   buildCronJobName,
   buildControllerConfig,
   collectWorkloads,
+  extractPlainTextSecrets,
   findMatchingService,
   projectDatabaseEnv,
   selectDumperImage,
@@ -114,6 +115,65 @@ test('selectDumperImage chooses the configured image for each supported version'
   assert.equal(selectDumperImage(config, 'postgresql', '16'), 'postgres16:1')
   assert.equal(selectDumperImage(config, 'elasticsearch'), 'elastic:1')
   assert.equal(selectDumperImage(config, 'mysql', '5.6'), null)
+})
+
+test('extractPlainTextSecrets moves plain-text sensitive vars into secretData', () => {
+  const env = [
+    { name: 'MYSQL_HOST', value: 'db.example.com' },
+    { name: 'MYSQL_PASSWORD', value: 's3cret' },
+    { name: 'MYSQL_USERNAME', value: 'app' },
+  ]
+
+  const result = extractPlainTextSecrets(env, 'my-cronjob')
+
+  assert.deepEqual(result.secretData, { MYSQL_PASSWORD: 's3cret' })
+  assert.equal(result.env.length, 3)
+  assert.deepEqual(result.env[0], { name: 'MYSQL_HOST', value: 'db.example.com' })
+  assert.deepEqual(result.env[1], {
+    name: 'MYSQL_PASSWORD',
+    valueFrom: { secretKeyRef: { name: 'my-cronjob', key: 'MYSQL_PASSWORD' } },
+  })
+  assert.deepEqual(result.env[2], { name: 'MYSQL_USERNAME', value: 'app' })
+})
+
+test('extractPlainTextSecrets passes through valueFrom refs unchanged', () => {
+  const env = [
+    {
+      name: 'MYSQL_PASSWORD',
+      valueFrom: { secretKeyRef: { name: 'existing-secret', key: 'password' } },
+    },
+    {
+      name: 'POSTGRESQL_PASSWORD',
+      valueFrom: { secretKeyRef: { name: 'pg-secret', key: 'password' } },
+    },
+  ]
+
+  const result = extractPlainTextSecrets(env, 'my-cronjob')
+
+  assert.deepEqual(result.secretData, {})
+  assert.deepEqual(result.env, env)
+})
+
+test('extractPlainTextSecrets handles mixed plain-text and secretKeyRef passwords', () => {
+  const env = [
+    { name: 'MYSQL_PASSWORD', value: 'plain-pw' },
+    {
+      name: 'POSTGRESQL_PASSWORD',
+      valueFrom: { secretKeyRef: { name: 'pg-secret', key: 'password' } },
+    },
+  ]
+
+  const result = extractPlainTextSecrets(env, 'my-cronjob')
+
+  assert.deepEqual(result.secretData, { MYSQL_PASSWORD: 'plain-pw' })
+  assert.deepEqual(result.env[0], {
+    name: 'MYSQL_PASSWORD',
+    valueFrom: { secretKeyRef: { name: 'my-cronjob', key: 'MYSQL_PASSWORD' } },
+  })
+  assert.deepEqual(result.env[1], {
+    name: 'POSTGRESQL_PASSWORD',
+    valueFrom: { secretKeyRef: { name: 'pg-secret', key: 'password' } },
+  })
 })
 
 test('collectWorkloads deduplicates multiple pods under the same resolved owner', async () => {

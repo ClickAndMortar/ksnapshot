@@ -9,6 +9,7 @@ import type {
   V1EnvVar,
   V1Job,
   V1Pod,
+  V1Secret,
   V1SecurityContext,
   V1Service,
 } from '@kubernetes/client-node'
@@ -26,6 +27,8 @@ const RUN_AS_UID = 65532
 const TMP_VOLUME_NAME = 'tmp'
 
 type SnapshotType = 'mysql' | 'postgresql' | 'elasticsearch'
+
+const sensitiveEnvVarNames = new Set(['MYSQL_PASSWORD', 'POSTGRESQL_PASSWORD'])
 
 export const labelFilters = { 'app.kubernetes.io/managed-by': 'ksnapshot' }
 export const labelSelector = qs.stringify(labelFilters, { encodeValuesOnly: true })
@@ -200,6 +203,52 @@ export const selectDumperImage = (
   return config.images.elasticsearch
 }
 
+export const extractPlainTextSecrets = (
+  env: V1EnvVar[],
+  secretName: string
+): { secretData: Record<string, string>; env: V1EnvVar[] } => {
+  const secretData: Record<string, string> = {}
+  const updatedEnv = env.map((envVar) => {
+    if (sensitiveEnvVarNames.has(envVar.name) && envVar.value !== undefined && !envVar.valueFrom) {
+      secretData[envVar.name] = envVar.value
+      return {
+        name: envVar.name,
+        valueFrom: { secretKeyRef: { name: secretName, key: envVar.name } },
+      }
+    }
+    return envVar
+  })
+  return { secretData, env: updatedEnv }
+}
+
+const reconcileCredentialSecret = async (
+  coreApi: CoreV1Api,
+  name: string,
+  namespace: string,
+  data: Record<string, string>
+): Promise<void> => {
+  const secret: V1Secret = {
+    apiVersion: 'v1',
+    kind: 'Secret',
+    metadata: { name, namespace, labels: labelFilters },
+    stringData: data,
+  }
+  try {
+    await coreApi.readNamespacedSecret({ name, namespace })
+    await coreApi.replaceNamespacedSecret({ name, namespace, body: secret })
+  } catch {
+    await coreApi.createNamespacedSecret({ namespace, body: secret })
+  }
+}
+
+const deleteCredentialSecret = async (coreApi: CoreV1Api, name: string, namespace: string): Promise<void> => {
+  try {
+    await coreApi.deleteNamespacedSecret({ name, namespace })
+  } catch {
+    // Ignore errors (e.g. 404 if Secret doesn't exist)
+  }
+}
+
 export const reconcileOnce = async (apis: ControllerApis, config: ControllerConfig): Promise<void> => {
   const existingCronJobs = await apis.batchApi.listNamespacedCronJob({
     namespace: config.controlNamespace,
@@ -233,6 +282,15 @@ export const reconcileOnce = async (apis: ControllerApis, config: ControllerConf
       const cronJobName = buildCronJobName(workload.type, workload.owner)
       const existingCronJob = existingCronJobsByName.get(cronJobName)
       const snapshotCronJob = buildSnapshotCronJob(config, workload, match.service, existingCronJob)
+
+      const container = snapshotCronJob.spec?.jobTemplate?.spec?.template?.spec?.containers?.[0]
+      if (container?.env) {
+        const { secretData, env: updatedEnv } = extractPlainTextSecrets(container.env, cronJobName)
+        if (Object.keys(secretData).length > 0) {
+          await reconcileCredentialSecret(apis.coreApi, cronJobName, config.controlNamespace, secretData)
+          container.env = updatedEnv
+        }
+      }
 
       if (!existingCronJob) {
         console.log(`Creating CronJob ${config.controlNamespace}/${cronJobName}`)
@@ -284,6 +342,7 @@ export const reconcileOnce = async (apis: ControllerApis, config: ControllerConf
         name,
         namespace: config.controlNamespace,
       })
+      await deleteCredentialSecret(apis.coreApi, name, config.controlNamespace)
     } catch (error) {
       console.error(`Failed to delete orphan CronJob ${config.controlNamespace}/${name}: ${formatError(error)}`)
     }
