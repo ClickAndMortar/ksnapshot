@@ -17,6 +17,8 @@ helm install ksnapshot clickandmortar/ksnapshot \
   --set s3.bucket=my-backup-bucket
 ```
 
+By default the chart watches only the `default` namespace. Set `rbac.watchNamespaces` to the namespaces that contain your annotated workloads.
+
 ### From source
 
 ```bash
@@ -104,20 +106,22 @@ helm install ksnapshot clickandmortar/ksnapshot -n ksnapshot \
 
 ### Namespace restrictions
 
-By default the operator watches all namespaces for annotated pods (using a ClusterRole). To restrict it to specific namespaces, set `rbac.watchNamespaces`:
+`rbac.watchNamespaces` is mandatory and defaults to `["default"]`. Set it to every namespace that should be scanned for annotated workloads:
 
 ```bash
 helm install ksnapshot clickandmortar/ksnapshot -n ksnapshot --create-namespace \
   --set s3.bucket=my-bucket \
-  --set rbac.watchNamespaces='{default,production,staging}'
+  --set 'rbac.watchNamespaces[0]=default' \
+  --set 'rbac.watchNamespaces[1]=production' \
+  --set 'rbac.watchNamespaces[2]=staging'
 ```
 
-When `watchNamespaces` is set, the chart creates namespace-scoped Roles and RoleBindings instead of a ClusterRole/ClusterRoleBinding. The operator will only list pods in the specified namespaces.
+The chart creates namespace-scoped Roles and RoleBindings for those namespaces. The operator only lists pods in the configured namespace set.
 
 ### Workload requirements
 
 - The annotated workload must be matched by exactly one selector-based Service.
-- MySQL and PostgreSQL credentials can come from literal `env`, `env.valueFrom`, or `envFrom` on the source container.
+- MySQL and PostgreSQL credentials can come from literal `env`, `env.valueFrom`, or `envFrom` on the source container. ksnapshot resolves those sources in the watched namespace and mirrors only the supported keys into a generated Secret in the control namespace.
 - Generated backup CronJobs run as the dedicated backup-job ServiceAccount, not the namespace default ServiceAccount.
 
 ### Encryption
@@ -147,7 +151,7 @@ kubectl annotate pod <pod-name> \
 |-----|------|---------|-------------|
 | `replicaCount` | int | `1` | Number of operator replicas |
 | `image.repository` | string | `ghcr.io/clickandmortar/ksnapshot` | Operator image repository |
-| `image.tag` | string | `latest` | Operator image tag |
+| `image.tag` | string | `Chart appVersion` | Operator image tag |
 | `image.pullPolicy` | string | `IfNotPresent` | Operator image pull policy |
 | `imagePullSecrets` | list | `[]` | Image pull secrets |
 | `serviceAccount.create` | bool | `true` | Create the operator ServiceAccount |
@@ -157,8 +161,8 @@ kubectl annotate pod <pod-name> \
 | `backupJob.serviceAccount.create` | bool | `true` | Create the backup-job ServiceAccount |
 | `backupJob.serviceAccount.name` | string | `""` | Override the backup-job ServiceAccount name |
 | `backupJob.serviceAccount.annotations` | object | `{}` | Backup-job ServiceAccount annotations (for IRSA / Workload Identity) |
-| `rbac.create` | bool | `true` | Create RBAC resources (ClusterRole or per-namespace Roles) |
-| `rbac.watchNamespaces` | list | `[]` | Namespaces the operator can watch. `[]` = all namespaces (ClusterRole). Set to a list to restrict (per-namespace Roles) |
+| `rbac.create` | bool | `true` | Create namespace-scoped RBAC resources |
+| `rbac.watchNamespaces` | list | `["default"]` | Non-empty list of namespaces the operator can watch |
 | `encryption.enabled` | bool | `false` | Enable age encryption for all backups |
 | `encryption.recipient` | string | `""` | age recipient public key (required when `encryption.enabled=true`) |
 | `dumperImages.mysql.v5_7` | string | `""` | Full image ref for the MySQL 5.7 dumper |
@@ -180,4 +184,4 @@ kubectl annotate pod <pod-name> \
 | `podAnnotations` | object | `{}` | Additional operator pod annotations |
 | `podLabels` | object | `{}` | Additional operator pod labels |
 
-See the [project README](../../README.md) for annotations and kubectl installation.
+See the [project README](../../README.md) for annotations and usage.

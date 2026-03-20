@@ -1,15 +1,37 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { AppsV1Api, V1Pod, V1Service } from '@kubernetes/client-node'
+import type { AppsV1Api, BatchV1Api, CoreV1Api, V1CronJob, V1Pod, V1Service } from '@kubernetes/client-node'
 import {
+  buildCredentialSecretName,
   buildCronJobName,
   buildControllerConfig,
   collectWorkloads,
-  extractPlainTextSecrets,
   findMatchingService,
-  projectDatabaseEnv,
+  reconcileOnce,
+  resolveDatabaseCredentials,
   selectDumperImage,
 } from './controller.js'
+import { getAnnotation } from './utils.js'
+
+const buildTestConfig = (overrides: NodeJS.ProcessEnv = {}) =>
+  buildControllerConfig({
+    ELASTICSEARCH_DUMPER_IMAGE: 'elastic:1',
+    MYSQL_DUMPER_IMAGE_5_7: 'mysql57:1',
+    MYSQL_DUMPER_IMAGE_8: 'mysql8:1',
+    POSTGRESQL_DUMPER_IMAGE_16: 'postgres16:1',
+    WATCH_NAMESPACES: 'default',
+    ...overrides,
+  })
+
+const encodeSecretData = (data: Record<string, string>): Record<string, string> => {
+  const encoded: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(data)) {
+    encoded[key] = Buffer.from(value, 'utf8').toString('base64')
+  }
+
+  return encoded
+}
 
 test('buildCronJobName is deterministic and collision-resistant for long owners', () => {
   const first = buildCronJobName('mysql', 'team-a/really-long-workload-name-aaaaaaaaaaaaaaaaaaaa')
@@ -57,58 +79,15 @@ test('findMatchingService ignores selectorless Services and rejects ambiguous ma
   assert.equal(exact.service?.metadata?.name, 'secondary-service')
 })
 
-test('projectDatabaseEnv preserves valueFrom and envFrom references', () => {
-  const projection = projectDatabaseEnv(
-    {
-      env: [
-        {
-          name: 'POSTGRES_USER',
-          valueFrom: {
-            secretKeyRef: {
-              key: 'username',
-              name: 'database-secret',
-            },
-          },
-        },
-      ],
-      envFrom: [
-        {
-          secretRef: {
-            name: 'database-secret',
-          },
-        },
-      ],
-    },
-    [['POSTGRES_USER', 'POSTGRESQL_USERNAME']]
-  )
+test('buildControllerConfig requires non-empty watch namespaces and trims values', () => {
+  assert.throws(() => buildControllerConfig({}), /WATCH_NAMESPACES must contain at least one namespace/)
 
-  assert.deepEqual(projection.env, [
-    {
-      name: 'POSTGRESQL_USERNAME',
-      valueFrom: {
-        secretKeyRef: {
-          key: 'username',
-          name: 'database-secret',
-        },
-      },
-    },
-  ])
-  assert.deepEqual(projection.envFrom, [
-    {
-      secretRef: {
-        name: 'database-secret',
-      },
-    },
-  ])
+  const config = buildTestConfig({ WATCH_NAMESPACES: ' team-a , team-b ' })
+  assert.deepEqual(config.watchNamespaces, ['team-a', 'team-b'])
 })
 
 test('selectDumperImage chooses the configured image for each supported version', () => {
-  const config = buildControllerConfig({
-    ELASTICSEARCH_DUMPER_IMAGE: 'elastic:1',
-    MYSQL_DUMPER_IMAGE_5_7: 'mysql57:1',
-    MYSQL_DUMPER_IMAGE_8: 'mysql8:1',
-    POSTGRESQL_DUMPER_IMAGE_16: 'postgres16:1',
-  })
+  const config = buildTestConfig()
 
   assert.equal(selectDumperImage(config, 'mysql', '5.7'), 'mysql57:1')
   assert.equal(selectDumperImage(config, 'mysql', '8'), 'mysql8:1')
@@ -117,63 +96,138 @@ test('selectDumperImage chooses the configured image for each supported version'
   assert.equal(selectDumperImage(config, 'mysql', '5.6'), null)
 })
 
-test('extractPlainTextSecrets moves plain-text sensitive vars into secretData', () => {
-  const env = [
-    { name: 'MYSQL_HOST', value: 'db.example.com' },
-    { name: 'MYSQL_PASSWORD', value: 's3cret' },
-    { name: 'MYSQL_USERNAME', value: 'app' },
-  ]
+test('resolveDatabaseCredentials mirrors supported env sources with env precedence', async () => {
+  const coreApi = {
+    readNamespacedConfigMap: async ({ name }: { name: string }) => {
+      if (name === 'database-config') {
+        return {
+          data: {
+            MYSQL_DATABASE: 'catalog-from-configmap',
+          },
+        }
+      }
 
-  const result = extractPlainTextSecrets(env, 'my-cronjob')
+      throw new Error(`unexpected configmap ${name}`)
+    },
+    readNamespacedSecret: async ({ name }: { name: string }) => {
+      if (name === 'base-secret') {
+        return {
+          data: encodeSecretData({
+            MYSQL_DATABASE: 'catalog-from-secret',
+            MYSQL_USER: 'user-from-envfrom',
+          }),
+        }
+      }
 
-  assert.deepEqual(result.secretData, { MYSQL_PASSWORD: 's3cret' })
-  assert.equal(result.env.length, 3)
-  assert.deepEqual(result.env[0], { name: 'MYSQL_HOST', value: 'db.example.com' })
-  assert.deepEqual(result.env[1], {
-    name: 'MYSQL_PASSWORD',
-    valueFrom: { secretKeyRef: { name: 'my-cronjob', key: 'MYSQL_PASSWORD' } },
+      if (name === 'user-secret') {
+        return {
+          data: encodeSecretData({
+            username: 'user-from-secretref',
+          }),
+        }
+      }
+
+      if (name === 'password-secret') {
+        return {
+          data: encodeSecretData({
+            password: 'password-from-secretref',
+          }),
+        }
+      }
+
+      throw new Error(`unexpected secret ${name}`)
+    },
+  } as unknown as Pick<CoreV1Api, 'readNamespacedConfigMap' | 'readNamespacedSecret'>
+
+  const resolved = await resolveDatabaseCredentials(
+    coreApi,
+    'demo',
+    {
+      env: [
+        {
+          name: 'MYSQL_USER',
+          valueFrom: {
+            secretKeyRef: {
+              key: 'username',
+              name: 'user-secret',
+            },
+          },
+        },
+        {
+          name: 'MYSQL_PASSWORD',
+          valueFrom: {
+            secretKeyRef: {
+              key: 'password',
+              name: 'password-secret',
+            },
+          },
+        },
+        {
+          name: 'MYSQL_DATABASE',
+          value: 'catalog-from-env',
+        },
+      ],
+      envFrom: [
+        {
+          secretRef: {
+            name: 'base-secret',
+          },
+        },
+        {
+          configMapRef: {
+            name: 'database-config',
+          },
+        },
+        {
+          prefix: 'IGNORED_',
+          secretRef: {
+            name: 'base-secret',
+          },
+        },
+      ],
+    },
+    [
+      ['MYSQL_USER', 'MYSQL_USERNAME'],
+      ['MYSQL_PASSWORD', 'MYSQL_PASSWORD'],
+      ['MYSQL_DATABASE', 'MYSQL_DATABASE'],
+    ]
+  )
+
+  assert.deepEqual(resolved, {
+    MYSQL_DATABASE: 'catalog-from-env',
+    MYSQL_PASSWORD: 'password-from-secretref',
+    MYSQL_USERNAME: 'user-from-secretref',
   })
-  assert.deepEqual(result.env[2], { name: 'MYSQL_USERNAME', value: 'app' })
 })
 
-test('extractPlainTextSecrets passes through valueFrom refs unchanged', () => {
-  const env = [
-    {
-      name: 'MYSQL_PASSWORD',
-      valueFrom: { secretKeyRef: { name: 'existing-secret', key: 'password' } },
-    },
-    {
-      name: 'POSTGRESQL_PASSWORD',
-      valueFrom: { secretKeyRef: { name: 'pg-secret', key: 'password' } },
-    },
-  ]
+test('resolveDatabaseCredentials rejects unsupported env sources for mirrored keys', async () => {
+  const coreApi = {
+    readNamespacedConfigMap: async () => ({ data: {} }),
+    readNamespacedSecret: async () => ({ data: {} }),
+  } as unknown as Pick<CoreV1Api, 'readNamespacedConfigMap' | 'readNamespacedSecret'>
 
-  const result = extractPlainTextSecrets(env, 'my-cronjob')
-
-  assert.deepEqual(result.secretData, {})
-  assert.deepEqual(result.env, env)
-})
-
-test('extractPlainTextSecrets handles mixed plain-text and secretKeyRef passwords', () => {
-  const env = [
-    { name: 'MYSQL_PASSWORD', value: 'plain-pw' },
-    {
-      name: 'POSTGRESQL_PASSWORD',
-      valueFrom: { secretKeyRef: { name: 'pg-secret', key: 'password' } },
-    },
-  ]
-
-  const result = extractPlainTextSecrets(env, 'my-cronjob')
-
-  assert.deepEqual(result.secretData, { MYSQL_PASSWORD: 'plain-pw' })
-  assert.deepEqual(result.env[0], {
-    name: 'MYSQL_PASSWORD',
-    valueFrom: { secretKeyRef: { name: 'my-cronjob', key: 'MYSQL_PASSWORD' } },
-  })
-  assert.deepEqual(result.env[1], {
-    name: 'POSTGRESQL_PASSWORD',
-    valueFrom: { secretKeyRef: { name: 'pg-secret', key: 'password' } },
-  })
+  await assert.rejects(
+    () =>
+      resolveDatabaseCredentials(
+        coreApi,
+        'demo',
+        {
+          env: [
+            {
+              name: 'MYSQL_PASSWORD',
+              valueFrom: {
+                fieldRef: {
+                  apiVersion: 'v1',
+                  fieldPath: 'metadata.name',
+                },
+              },
+            },
+          ],
+        },
+        [['MYSQL_PASSWORD', 'MYSQL_PASSWORD']]
+      ),
+    /Unsupported source for MYSQL_PASSWORD: fieldRef/
+  )
 })
 
 test('collectWorkloads deduplicates multiple pods under the same resolved owner', async () => {
@@ -238,11 +292,145 @@ test('collectWorkloads deduplicates multiple pods under the same resolved owner'
     },
   } as unknown as AppsV1Api
 
-  const config = buildControllerConfig({})
-  const collected = await collectWorkloads([firstPod, secondPod], appsApi, config)
+  const collected = await collectWorkloads([firstPod, secondPod], appsApi, buildTestConfig())
 
   assert.deepEqual(Array.from(collected.activeOwners), ['demo/database'])
   assert.equal(collected.workloads.length, 1)
   assert.equal(collected.workloads[0]?.owner, 'demo/database')
   assert.equal(collected.workloads[0]?.pods.length, 2)
+})
+
+test('reconcileOnce only lists pods from configured watch namespaces', async () => {
+  const listedNamespaces: string[] = []
+
+  const coreApi = {
+    deleteNamespacedSecret: async () => undefined,
+    listNamespacedPod: async ({ namespace }: { namespace: string }) => {
+      listedNamespaces.push(namespace)
+      return { items: [] }
+    },
+    listNamespacedService: async () => ({ items: [] }),
+    listPodForAllNamespaces: async () => {
+      throw new Error('listPodForAllNamespaces should not be called')
+    },
+    readNamespacedConfigMap: async () => ({ data: {} }),
+    readNamespacedSecret: async () => ({ data: {} }),
+  } as unknown as CoreV1Api
+
+  const batchApi = {
+    listNamespacedCronJob: async () => ({ items: [] }),
+    listNamespacedJob: async () => ({ items: [] }),
+  } as unknown as BatchV1Api
+
+  await reconcileOnce(
+    {
+      appsApi: {} as AppsV1Api,
+      batchApi,
+      coreApi,
+    },
+    buildTestConfig({ WATCH_NAMESPACES: 'team-a,team-b' })
+  )
+
+  assert.deepEqual(listedNamespaces, ['team-a', 'team-b'])
+})
+
+test('reconcileOnce deletes stale CronJobs and mirrored Secrets when workload type changes', async () => {
+  const owner = 'demo/database'
+  const oldCronJobName = buildCronJobName('mysql', owner)
+  const newCronJobName = buildCronJobName('elasticsearch', owner)
+  const createdCronJobs: string[] = []
+  const deletedCronJobs: string[] = []
+  const deletedSecrets: string[] = []
+
+  const coreApi = {
+    deleteNamespacedSecret: async ({ name }: { name: string }) => {
+      deletedSecrets.push(name)
+      return undefined
+    },
+    listNamespacedPod: async () => ({
+      items: [
+        {
+          metadata: {
+            annotations: {
+              [getAnnotation('enabled')]: 'true',
+              [getAnnotation('schedule')]: '0 2 * * *',
+              [getAnnotation('type')]: 'elasticsearch',
+            },
+            labels: {
+              app: 'database',
+            },
+            name: 'database-0',
+            namespace: 'demo',
+            ownerReferences: [
+              {
+                kind: 'Deployment',
+                name: 'database',
+              },
+            ],
+          },
+          spec: {
+            containers: [{}],
+          },
+          status: {
+            phase: 'Running',
+          },
+        } as V1Pod,
+      ],
+    }),
+    listNamespacedService: async () => ({
+      items: [
+        {
+          metadata: {
+            name: 'database',
+            namespace: 'demo',
+          },
+          spec: {
+            selector: {
+              app: 'database',
+            },
+          },
+        } as V1Service,
+      ],
+    }),
+    readNamespacedConfigMap: async () => ({ data: {} }),
+    readNamespacedSecret: async () => ({ data: {} }),
+  } as unknown as CoreV1Api
+
+  const batchApi = {
+    createNamespacedCronJob: async ({ body }: { body: V1CronJob }) => {
+      createdCronJobs.push(String(body.metadata?.name))
+      return body
+    },
+    deleteNamespacedCronJob: async ({ name }: { name: string }) => {
+      deletedCronJobs.push(name)
+      return undefined
+    },
+    listNamespacedCronJob: async () => ({
+      items: [
+        {
+          metadata: {
+            annotations: {
+              [getAnnotation('owner')]: owner,
+            },
+            name: oldCronJobName,
+          },
+        } as V1CronJob,
+      ],
+    }),
+    listNamespacedJob: async () => ({ items: [] }),
+  } as unknown as BatchV1Api
+
+  await reconcileOnce(
+    {
+      appsApi: {} as AppsV1Api,
+      batchApi,
+      coreApi,
+    },
+    buildTestConfig({ WATCH_NAMESPACES: 'demo' })
+  )
+
+  assert.deepEqual(createdCronJobs, [newCronJobName])
+  assert.deepEqual(deletedCronJobs, [oldCronJobName])
+  assert.ok(deletedSecrets.includes(oldCronJobName))
+  assert.ok(deletedSecrets.includes(buildCredentialSecretName(oldCronJobName)))
 })

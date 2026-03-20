@@ -12,7 +12,7 @@ Compatible with AWS S3, Cloudflare R2, MinIO, DigitalOcean Spaces, and other S3-
 
 ## How it works
 
-The operator polls running pods every 60 seconds. For each annotated workload, it resolves the owner chain (Pod → ReplicaSet → Deployment when needed), requires exactly one selector-based Service for that workload, and creates or updates a CronJob in the operator namespace. Backup jobs run under a dedicated ServiceAccount with no Kubernetes RBAC.
+The operator polls configured namespaces every 60 seconds. For each annotated workload, it resolves the owner chain (Pod → ReplicaSet → Deployment when needed), requires exactly one selector-based Service for that workload, resolves supported database credential sources, mirrors only the required keys into an operator-managed Secret in the control namespace, and creates or updates a CronJob there. Backup jobs run under a dedicated ServiceAccount with no Kubernetes RBAC.
 
 MySQL and PostgreSQL credential discovery supports:
 
@@ -72,23 +72,9 @@ helm install ksnapshot clickandmortar/ksnapshot \
   --set s3.bucket=my-backup-bucket
 ```
 
+By default the chart watches only the `default` namespace. Set `rbac.watchNamespaces` to the namespaces that contain your annotated workloads.
+
 See [chart README](chart/ksnapshot/README.md) for all values and credential options.
-
-### kubectl
-
-```shell
-kubectl create namespace ksnapshot
-
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-sa.yaml
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-backup-sa.yaml
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-cr.yaml
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-crb.yaml
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-role.yaml
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-rb.yaml
-kubectl apply -f https://raw.githubusercontent.com/ClickAndMortar/ksnapshot/main/manifests/deployment/ksnapshot-deployment.yaml
-```
-
-The operator uses its own namespace as the control namespace. Create the S3 ConfigMap and optional Secret in that same namespace.
 
 ## Storage configuration
 
@@ -172,7 +158,7 @@ metadata:
 Requirements:
 
 - The annotated workload must be exposed by exactly one selector-based Service in its namespace.
-- MySQL and PostgreSQL credentials must come from `env`, `env.valueFrom`, or `envFrom` on the source container.
+- MySQL and PostgreSQL credentials can come from literal `env`, `env.valueFrom`, or `envFrom` on the source container. ksnapshot resolves those sources in the watched namespace and mirrors only the supported keys into a generated Secret in the control namespace.
 - Backups are created once per workload owner, not once per pod replica.
 
 ### Annotations
@@ -231,8 +217,8 @@ npm test          # Unit + dumper tests
 Docker images:
 
 ```shell
-make build        # docker build -t clickandmortar/ksnapshot:latest .
-make push         # docker push clickandmortar/ksnapshot:latest
+make build        # builds ghcr.io/clickandmortar/* images tagged with VERSION (default: dev)
+make push         # pushes ghcr.io/clickandmortar/* images tagged with VERSION
 ```
 
 ## Roadmap

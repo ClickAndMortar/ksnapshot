@@ -23,6 +23,7 @@ spec:
         {{- end }}
     spec:
       automountServiceAccountToken: true
+      {{- $watchNamespaces := required "rbac.watchNamespaces must contain at least one namespace" (join "," .Values.rbac.watchNamespaces) }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -51,10 +52,8 @@ spec:
           env:
             - name: MODE
               value: cluster
-            {{- if .Values.rbac.watchNamespaces }}
             - name: WATCH_NAMESPACES
-              value: {{ join "," .Values.rbac.watchNamespaces | quote }}
-            {{- end }}
+              value: {{ $watchNamespaces | quote }}
             - name: CONTROL_NAMESPACE
               valueFrom:
                 fieldRef:

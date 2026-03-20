@@ -3,6 +3,13 @@ ksnapshot has been installed in namespace {{ .Release.Namespace }}.
 The operator will watch for pods with `ksnapshot.clickandmortar.fr/*` annotations
 and create CronJobs to perform database snapshots.
 
+Watched namespaces: {{ join ", " .Values.rbac.watchNamespaces }}.
+{{- if and (eq (len .Values.rbac.watchNamespaces) 1) (eq (index .Values.rbac.watchNamespaces 0) "default") }}
+
+INFO: The operator is currently only watching the `default` namespace.
+Set `rbac.watchNamespaces` to include your workload namespaces if they live elsewhere.
+{{- end }}
+
 {{- if not .Values.existingConfigMap }}
 
 A ConfigMap `ksnapshot-cm` has been created with:

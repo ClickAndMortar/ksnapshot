@@ -24,9 +24,9 @@ backupJob:
 rbac:
   create: true
   # Namespaces the operator is allowed to watch for annotated pods.
-  # Empty list (default) means all namespaces (uses ClusterRole).
-  # Set to a list of namespaces to restrict access (uses per-namespace Roles).
-  watchNamespaces: []
+  # This list must not be empty.
+  watchNamespaces:
+    - default
 
 encryption:
   enabled: false

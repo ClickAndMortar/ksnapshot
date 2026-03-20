@@ -1,7 +1,15 @@
+import type { ControllerConfig } from './controller.js'
 import { buildControllerConfig, LOOP_INTERVAL_MS, reconcileOnce } from './controller.js'
 import { k8sAppsApi, k8sBatchApi, k8sCoreApi } from './k8s.js'
 
-const config = buildControllerConfig()
+let config: ControllerConfig
+try {
+  config = buildControllerConfig()
+} catch (error) {
+  console.error(`Invalid controller configuration: ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
+}
+
 let timer: NodeJS.Timeout | undefined
 
 const scheduleNext = () => {

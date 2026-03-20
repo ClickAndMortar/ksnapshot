@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type {
   AppsV1Api,
   BatchV1Api,
   CoreV1Api,
+  V1ConfigMap,
   V1Container,
   V1CronJob,
-  V1EnvFromSource,
   V1EnvVar,
   V1Job,
   V1Pod,
@@ -25,10 +27,9 @@ const DEFAULT_MYSQL_VERSION = '8'
 const DEFAULT_POSTGRESQL_VERSION = '16'
 const RUN_AS_UID = 65532
 const TMP_VOLUME_NAME = 'tmp'
+const CREDENTIAL_SECRET_SUFFIX = '-credentials'
 
 type SnapshotType = 'mysql' | 'postgresql' | 'elasticsearch'
-
-const sensitiveEnvVarNames = new Set(['MYSQL_PASSWORD', 'POSTGRESQL_PASSWORD'])
 
 export const labelFilters = { 'app.kubernetes.io/managed-by': 'ksnapshot' }
 export const labelSelector = qs.stringify(labelFilters, { encodeValuesOnly: true })
@@ -73,14 +74,14 @@ interface WorkloadGroup extends WorkloadSettings {
   sourceContainer: V1Container
 }
 
-interface DatabaseEnvProjection {
-  env: V1EnvVar[]
-  envFrom: V1EnvFromSource[]
-}
-
 interface ServiceMatchResult {
   service?: V1Service
   error?: string
+}
+
+interface ResourceReader {
+  readConfigMap(namespace: string, name: string, optional?: boolean): Promise<Record<string, string> | null>
+  readSecret(namespace: string, name: string, optional?: boolean): Promise<Record<string, string> | null>
 }
 
 const containerSecurityContext: V1SecurityContext = {
@@ -103,10 +104,33 @@ const postgresqlEnvMappings: ReadonlyArray<[string, string]> = [
   ['POSTGRES_DB', 'POSTGRESQL_DATABASE'],
 ]
 
+const defaultImageTag = (() => {
+  try {
+    const packageJson = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as { version?: string }
+    return packageJson.version || 'dev'
+  } catch {
+    return 'dev'
+  }
+})()
+
+const defaultImageRef = (repository: string): string => `${repository}:${defaultImageTag}`
+
+const parseWatchNamespaces = (value?: string): string[] => {
+  return (value || '')
+    .split(',')
+    .map((namespace) => namespace.trim())
+    .filter(Boolean)
+}
+
 export const buildControllerConfig = (env: NodeJS.ProcessEnv = process.env): ControllerConfig => {
+  const watchNamespaces = parseWatchNamespaces(env.WATCH_NAMESPACES)
+  if (watchNamespaces.length === 0) {
+    throw new Error('WATCH_NAMESPACES must contain at least one namespace')
+  }
+
   return {
     controlNamespace: env.CONTROL_NAMESPACE || 'ksnapshot',
-    watchNamespaces: env.WATCH_NAMESPACES ? env.WATCH_NAMESPACES.split(',').filter(Boolean) : [],
+    watchNamespaces,
     backupConfigMapName: env.BACKUP_CONFIGMAP_NAME || 'ksnapshot-cm',
     backupSecretName: env.BACKUP_SECRET_NAME || '',
     backupJobServiceAccountName: env.BACKUP_JOB_SERVICE_ACCOUNT_NAME || 'ksnapshot-backup-sa',
@@ -114,12 +138,12 @@ export const buildControllerConfig = (env: NodeJS.ProcessEnv = process.env): Con
     defaultEncryptionEnabled: env.DEFAULT_ENCRYPTION_ENABLED === 'true',
     defaultEncryptionRecipient: env.DEFAULT_ENCRYPTION_RECIPIENT || '',
     images: {
-      mysql57: env.MYSQL_DUMPER_IMAGE_5_7 || 'ghcr.io/clickandmortar/ksnapshot-dumper-mysql-5.7:latest',
-      mysql8: env.MYSQL_DUMPER_IMAGE_8 || 'ghcr.io/clickandmortar/ksnapshot-dumper-mysql-8:latest',
+      mysql57: env.MYSQL_DUMPER_IMAGE_5_7 || defaultImageRef('ghcr.io/clickandmortar/ksnapshot-dumper-mysql-5.7'),
+      mysql8: env.MYSQL_DUMPER_IMAGE_8 || defaultImageRef('ghcr.io/clickandmortar/ksnapshot-dumper-mysql-8'),
       postgresql16:
-        env.POSTGRESQL_DUMPER_IMAGE_16 || 'ghcr.io/clickandmortar/ksnapshot-dumper-postgresql-16:latest',
-      elasticsearch:
-        env.ELASTICSEARCH_DUMPER_IMAGE || 'ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:latest',
+        env.POSTGRESQL_DUMPER_IMAGE_16 ||
+        defaultImageRef('ghcr.io/clickandmortar/ksnapshot-dumper-postgresql-16'),
+      elasticsearch: env.ELASTICSEARCH_DUMPER_IMAGE || defaultImageRef('ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch'),
     },
   }
 }
@@ -162,25 +186,6 @@ export const findMatchingService = (services: V1Service[], pods: V1Pod[]): Servi
   }
 }
 
-export const projectDatabaseEnv = (
-  container: Pick<V1Container, 'env' | 'envFrom'>,
-  mappings: ReadonlyArray<[string, string]>
-): DatabaseEnvProjection => {
-  const env: V1EnvVar[] = []
-
-  for (const [sourceName, targetName] of mappings) {
-    const projected = projectEnvVar(container.env || [], sourceName, targetName)
-    if (projected) {
-      env.push(projected)
-    }
-  }
-
-  return {
-    env,
-    envFrom: (container.envFrom || []).map((envFromSource) => ({ ...envFromSource })),
-  }
-}
-
 export const selectDumperImage = (
   config: ControllerConfig,
   type: SnapshotType,
@@ -205,22 +210,28 @@ export const selectDumperImage = (
   return config.images.elasticsearch
 }
 
-export const extractPlainTextSecrets = (
-  env: V1EnvVar[],
-  secretName: string
-): { secretData: Record<string, string>; env: V1EnvVar[] } => {
-  const secretData: Record<string, string> = {}
-  const updatedEnv = env.map((envVar) => {
-    if (sensitiveEnvVarNames.has(envVar.name) && envVar.value !== undefined && !envVar.valueFrom) {
-      secretData[envVar.name] = envVar.value
-      return {
-        name: envVar.name,
-        valueFrom: { secretKeyRef: { name: secretName, key: envVar.name } },
-      }
-    }
-    return envVar
-  })
-  return { secretData, env: updatedEnv }
+export const buildCredentialSecretName = (cronJobName: string): string => `${cronJobName}${CREDENTIAL_SECRET_SUFFIX}`
+
+const buildMirroredCredentialEnv = (
+  secretName: string,
+  mappings: ReadonlyArray<[string, string]>,
+  data: Record<string, string>
+): V1EnvVar[] => {
+  return mappings.flatMap(([, targetName]) =>
+    data[targetName] === undefined
+      ? []
+      : [
+          {
+            name: targetName,
+            valueFrom: {
+              secretKeyRef: {
+                key: targetName,
+                name: secretName,
+              },
+            },
+          },
+        ]
+  )
 }
 
 const reconcileCredentialSecret = async (
@@ -251,6 +262,14 @@ const deleteCredentialSecret = async (coreApi: CoreV1Api, name: string, namespac
   }
 }
 
+const deleteCredentialSecrets = async (coreApi: CoreV1Api, cronJobName: string, namespace: string): Promise<void> => {
+  const names = new Set([cronJobName, buildCredentialSecretName(cronJobName)])
+
+  for (const name of names) {
+    await deleteCredentialSecret(coreApi, name, namespace)
+  }
+}
+
 export const reconcileOnce = async (apis: ControllerApis, config: ControllerConfig): Promise<void> => {
   const existingCronJobs = await apis.batchApi.listNamespacedCronJob({
     namespace: config.controlNamespace,
@@ -261,18 +280,12 @@ export const reconcileOnce = async (apis: ControllerApis, config: ControllerConf
       .map((cronJob) => [cronJob.metadata?.name, cronJob] as const)
       .filter((entry): entry is [string, V1CronJob] => Boolean(entry[0]))
   )
+  const resourceReader = createResourceReader(apis.coreApi)
+  const desiredCronJobNames = new Set<string>()
 
-  let allPods: V1Pod[]
-  if (config.watchNamespaces.length > 0) {
-    const lists = await Promise.all(
-      config.watchNamespaces.map((namespace) => apis.coreApi.listNamespacedPod({ namespace }))
-    )
-    allPods = lists.flatMap((list) => list.items)
-  } else {
-    const podList = await apis.coreApi.listPodForAllNamespaces()
-    allPods = podList.items
-  }
-  const { activeOwners, workloads } = await collectWorkloads(allPods, apis.appsApi, config)
+  const lists = await Promise.all(config.watchNamespaces.map((namespace) => apis.coreApi.listNamespacedPod({ namespace })))
+  const allPods = lists.flatMap((list) => list.items)
+  const { workloads } = await collectWorkloads(allPods, apis.appsApi, config)
   const servicesByNamespace = new Map<string, V1Service[]>()
 
   for (const workload of workloads) {
@@ -291,16 +304,45 @@ export const reconcileOnce = async (apis: ControllerApis, config: ControllerConf
       }
 
       const cronJobName = buildCronJobName(workload.type, workload.owner)
+      const credentialSecretName = buildCredentialSecretName(cronJobName)
       const existingCronJob = existingCronJobsByName.get(cronJobName)
-      const snapshotCronJob = buildSnapshotCronJob(config, workload, match.service, existingCronJob)
+      const credentialSecretData =
+        workload.type === 'mysql'
+          ? await resolveDatabaseCredentialsWithReader(resourceReader, workload.namespace, workload.sourceContainer, mysqlEnvMappings)
+          : workload.type === 'postgresql'
+            ? await resolveDatabaseCredentialsWithReader(
+                resourceReader,
+                workload.namespace,
+                workload.sourceContainer,
+                postgresqlEnvMappings
+              )
+            : {}
 
-      const container = snapshotCronJob.spec?.jobTemplate?.spec?.template?.spec?.containers?.[0]
-      if (container?.env) {
-        const { secretData, env: updatedEnv } = extractPlainTextSecrets(container.env, cronJobName)
-        if (Object.keys(secretData).length > 0) {
-          await reconcileCredentialSecret(apis.coreApi, cronJobName, config.controlNamespace, secretData)
-          container.env = updatedEnv
-        }
+      if (workload.type === 'mysql') {
+        validateResolvedCredentials(workload.type, credentialSecretData, ['MYSQL_USERNAME', 'MYSQL_DATABASE'])
+      } else if (workload.type === 'postgresql') {
+        validateResolvedCredentials(workload.type, credentialSecretData, [
+          'POSTGRESQL_USERNAME',
+          'POSTGRESQL_PASSWORD',
+          'POSTGRESQL_DATABASE',
+        ])
+      }
+
+      const snapshotCronJob = buildSnapshotCronJob(
+        config,
+        workload,
+        match.service,
+        credentialSecretName,
+        credentialSecretData,
+        existingCronJob
+      )
+
+      desiredCronJobNames.add(cronJobName)
+
+      if (Object.keys(credentialSecretData).length > 0) {
+        await reconcileCredentialSecret(apis.coreApi, credentialSecretName, config.controlNamespace, credentialSecretData)
+      } else {
+        await deleteCredentialSecrets(apis.coreApi, cronJobName, config.controlNamespace)
       }
 
       if (!existingCronJob) {
@@ -342,8 +384,7 @@ export const reconcileOnce = async (apis: ControllerApis, config: ControllerConf
 
   for (const cronJob of existingCronJobs.items) {
     const name = cronJob.metadata?.name
-    const owner = cronJob.metadata?.annotations?.[getAnnotation('owner')]
-    if (!name || !owner || activeOwners.has(owner)) {
+    if (!name || desiredCronJobNames.has(name)) {
       continue
     }
 
@@ -353,7 +394,7 @@ export const reconcileOnce = async (apis: ControllerApis, config: ControllerConf
         name,
         namespace: config.controlNamespace,
       })
-      await deleteCredentialSecret(apis.coreApi, name, config.controlNamespace)
+      await deleteCredentialSecrets(apis.coreApi, name, config.controlNamespace)
     } catch (error) {
       console.error(`Failed to delete orphan CronJob ${config.controlNamespace}/${name}: ${formatError(error)}`)
     }
@@ -446,30 +487,27 @@ const buildSnapshotCronJob = (
   config: ControllerConfig,
   workload: WorkloadGroup,
   service: V1Service,
+  credentialSecretName: string,
+  credentialSecretData: Record<string, string>,
   existingCronJob?: V1CronJob
 ): V1CronJob => {
   const env = buildBackendEnv(config)
-  let envFrom: V1EnvFromSource[] | undefined
   const serviceHost = `${service.metadata?.name}.${service.metadata?.namespace}.svc.cluster.local`
 
   if (workload.type === 'mysql') {
-    const projection = projectDatabaseEnv(workload.sourceContainer, mysqlEnvMappings)
     env.push(
       { name: 'MYSQL_HOST', value: serviceHost },
       { name: 'MYSQL_PORT', value: '3306' },
-      ...projection.env
+      ...buildMirroredCredentialEnv(credentialSecretName, mysqlEnvMappings, credentialSecretData)
     )
-    envFrom = projection.envFrom.length > 0 ? projection.envFrom : undefined
   }
 
   if (workload.type === 'postgresql') {
-    const projection = projectDatabaseEnv(workload.sourceContainer, postgresqlEnvMappings)
     env.push(
       { name: 'POSTGRESQL_HOST', value: serviceHost },
       { name: 'POSTGRESQL_PORT', value: '5432' },
-      ...projection.env
+      ...buildMirroredCredentialEnv(credentialSecretName, postgresqlEnvMappings, credentialSecretData)
     )
-    envFrom = projection.envFrom.length > 0 ? projection.envFrom : undefined
   }
 
   if (workload.type === 'elasticsearch') {
@@ -520,7 +558,6 @@ const buildSnapshotCronJob = (
               containers: [
                 {
                   env,
-                  envFrom,
                   image,
                   imagePullPolicy: config.backupImagePullPolicy,
                   name: 'job',
@@ -711,6 +748,129 @@ const normalizeVersion = (type: SnapshotType, version?: string): string | undefi
   return undefined
 }
 
+const createResourceReader = (
+  coreApi: Pick<CoreV1Api, 'readNamespacedConfigMap' | 'readNamespacedSecret'>
+): ResourceReader => {
+  const configMapCache = new Map<string, Promise<Record<string, string> | null>>()
+  const secretCache = new Map<string, Promise<Record<string, string> | null>>()
+
+  return {
+    readConfigMap: async (namespace: string, name: string, optional = false) => {
+      const data = await getCachedResource(configMapCache, `${namespace}/${name}`, async () => {
+        try {
+          const configMap = await coreApi.readNamespacedConfigMap({ name, namespace })
+          return extractConfigMapData(configMap)
+        } catch (error) {
+          if (getKubernetesErrorCode(error) === 404) {
+            return null
+          }
+
+          throw error
+        }
+      })
+
+      if (!data && !optional) {
+        throw new Error(`Referenced ConfigMap ${namespace}/${name} was not found`)
+      }
+
+      return data
+    },
+    readSecret: async (namespace: string, name: string, optional = false) => {
+      const data = await getCachedResource(secretCache, `${namespace}/${name}`, async () => {
+        try {
+          const secret = await coreApi.readNamespacedSecret({ name, namespace })
+          return extractSecretData(secret)
+        } catch (error) {
+          if (getKubernetesErrorCode(error) === 404) {
+            return null
+          }
+
+          throw error
+        }
+      })
+
+      if (!data && !optional) {
+        throw new Error(`Referenced Secret ${namespace}/${name} was not found`)
+      }
+
+      return data
+    },
+  }
+}
+
+export const resolveDatabaseCredentials = async (
+  coreApi: Pick<CoreV1Api, 'readNamespacedConfigMap' | 'readNamespacedSecret'>,
+  namespace: string,
+  container: Pick<V1Container, 'env' | 'envFrom'>,
+  mappings: ReadonlyArray<[string, string]>
+): Promise<Record<string, string>> => {
+  return resolveDatabaseCredentialsWithReader(createResourceReader(coreApi), namespace, container, mappings)
+}
+
+const resolveDatabaseCredentialsWithReader = async (
+  reader: ResourceReader,
+  namespace: string,
+  container: Pick<V1Container, 'env' | 'envFrom'>,
+  mappings: ReadonlyArray<[string, string]>
+): Promise<Record<string, string>> => {
+  const resolved = new Map<string, string>()
+  const sourceNames = new Set(mappings.map(([sourceName]) => sourceName))
+
+  for (const envFromSource of container.envFrom || []) {
+    if (envFromSource.prefix) {
+      continue
+    }
+
+    if (envFromSource.secretRef?.name) {
+      const data = await reader.readSecret(
+        namespace,
+        envFromSource.secretRef.name,
+        envFromSource.secretRef.optional === true
+      )
+      mergeResolvedEnvFromData(resolved, sourceNames, data)
+      continue
+    }
+
+    if (envFromSource.configMapRef?.name) {
+      const data = await reader.readConfigMap(
+        namespace,
+        envFromSource.configMapRef.name,
+        envFromSource.configMapRef.optional === true
+      )
+      mergeResolvedEnvFromData(resolved, sourceNames, data)
+    }
+  }
+
+  for (const envVar of container.env || []) {
+    if (!sourceNames.has(envVar.name)) {
+      continue
+    }
+
+    if (envVar.value !== undefined) {
+      resolved.set(envVar.name, envVar.value)
+      continue
+    }
+
+    const resolvedValue = await resolveExplicitEnvValue(reader, namespace, envVar)
+    if (resolvedValue === undefined) {
+      resolved.delete(envVar.name)
+      continue
+    }
+
+    resolved.set(envVar.name, resolvedValue)
+  }
+
+  const secretData: Record<string, string> = {}
+  for (const [sourceName, targetName] of mappings) {
+    const value = resolved.get(sourceName)
+    if (value !== undefined) {
+      secretData[targetName] = value
+    }
+  }
+
+  return secretData
+}
+
 const resolveOwner = async (
   pod: V1Pod,
   appsApi: AppsV1Api,
@@ -784,23 +944,6 @@ const sameSettings = (left: WorkloadSettings, right: WorkloadSettings): boolean 
   )
 }
 
-const projectEnvVar = (envVars: V1EnvVar[], sourceName: string, targetName: string): V1EnvVar | null => {
-  const sourceEnv = envVars.find((envVar) => envVar.name === sourceName)
-  if (!sourceEnv) {
-    return null
-  }
-
-  if (sourceEnv.value !== undefined) {
-    return { name: targetName, value: sourceEnv.value }
-  }
-
-  if (sourceEnv.valueFrom) {
-    return { name: targetName, valueFrom: sourceEnv.valueFrom }
-  }
-
-  return null
-}
-
 const deleteTerminatedJobs = async (batchApi: BatchV1Api, namespace: string): Promise<void> => {
   const jobs = await batchApi.listNamespacedJob({
     namespace,
@@ -844,20 +987,160 @@ const isOlderThanRetention = (job: V1Job): boolean => {
 }
 
 const isRecoverableKubernetesConflict = (error: unknown): boolean => {
-  const code =
-    typeof error === 'object' && error !== null
-      ? 'code' in error && typeof error.code === 'number'
-        ? error.code
-        : 'body' in error &&
-            typeof error.body === 'object' &&
-            error.body !== null &&
-            'code' in error.body &&
-            typeof error.body.code === 'number'
-          ? error.body.code
-          : undefined
-      : undefined
+  return getKubernetesErrorCode(error) === 409
+}
 
-  return code === 409
+const getKubernetesErrorCode = (error: unknown): number | undefined => {
+  return typeof error === 'object' && error !== null
+    ? 'code' in error && typeof error.code === 'number'
+      ? error.code
+      : 'body' in error &&
+          typeof error.body === 'object' &&
+          error.body !== null &&
+          'code' in error.body &&
+          typeof error.body.code === 'number'
+        ? error.body.code
+        : undefined
+    : undefined
+}
+
+const extractConfigMapData = (configMap: V1ConfigMap): Record<string, string> => {
+  return { ...(configMap.data || {}) }
+}
+
+const extractSecretData = (secret: V1Secret): Record<string, string> => {
+  const data: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(secret.data || {})) {
+    data[key] = Buffer.from(value, 'base64').toString('utf8')
+  }
+
+  return data
+}
+
+const getCachedResource = async <T>(
+  cache: Map<string, Promise<T>>,
+  key: string,
+  load: () => Promise<T>
+): Promise<T> => {
+  let pending = cache.get(key)
+  if (!pending) {
+    pending = load()
+    cache.set(key, pending)
+  }
+
+  return pending
+}
+
+const mergeResolvedEnvFromData = (
+  resolved: Map<string, string>,
+  sourceNames: Set<string>,
+  data: Record<string, string> | null
+): void => {
+  if (!data) {
+    return
+  }
+
+  for (const sourceName of sourceNames) {
+    const value = data[sourceName]
+    if (value !== undefined) {
+      resolved.set(sourceName, value)
+    }
+  }
+}
+
+const resolveExplicitEnvValue = async (
+  reader: ResourceReader,
+  namespace: string,
+  envVar: V1EnvVar
+): Promise<string | undefined> => {
+  const valueFrom = envVar.valueFrom
+  if (!valueFrom) {
+    return undefined
+  }
+
+  if (valueFrom.secretKeyRef?.name) {
+    return resolveSecretKeyRef(reader, namespace, envVar.name, valueFrom.secretKeyRef)
+  }
+
+  if (valueFrom.configMapKeyRef?.name) {
+    return resolveConfigMapKeyRef(reader, namespace, envVar.name, valueFrom.configMapKeyRef)
+  }
+
+  if (valueFrom.fieldRef) {
+    throw new Error(`Unsupported source for ${envVar.name}: fieldRef`)
+  }
+
+  if (valueFrom.resourceFieldRef) {
+    throw new Error(`Unsupported source for ${envVar.name}: resourceFieldRef`)
+  }
+
+  throw new Error(`Unsupported source for ${envVar.name}`)
+}
+
+const resolveSecretKeyRef = async (
+  reader: ResourceReader,
+  namespace: string,
+  envName: string,
+  ref: { key: string; name?: string; optional?: boolean }
+): Promise<string | undefined> => {
+  if (!ref.name) {
+    throw new Error(`Secret reference for ${envName} is missing a name`)
+  }
+
+  const data = await reader.readSecret(namespace, ref.name, ref.optional === true)
+  if (!data) {
+    return undefined
+  }
+
+  const value = data[ref.key]
+  if (value === undefined) {
+    if (ref.optional === true) {
+      return undefined
+    }
+
+    throw new Error(`Referenced Secret ${namespace}/${ref.name} is missing key ${ref.key} for ${envName}`)
+  }
+
+  return value
+}
+
+const resolveConfigMapKeyRef = async (
+  reader: ResourceReader,
+  namespace: string,
+  envName: string,
+  ref: { key: string; name?: string; optional?: boolean }
+): Promise<string | undefined> => {
+  if (!ref.name) {
+    throw new Error(`ConfigMap reference for ${envName} is missing a name`)
+  }
+
+  const data = await reader.readConfigMap(namespace, ref.name, ref.optional === true)
+  if (!data) {
+    return undefined
+  }
+
+  const value = data[ref.key]
+  if (value === undefined) {
+    if (ref.optional === true) {
+      return undefined
+    }
+
+    throw new Error(`Referenced ConfigMap ${namespace}/${ref.name} is missing key ${ref.key} for ${envName}`)
+  }
+
+  return value
+}
+
+const validateResolvedCredentials = (
+  type: Extract<SnapshotType, 'mysql' | 'postgresql'>,
+  data: Record<string, string>,
+  requiredKeys: string[]
+): void => {
+  const missingKeys = requiredKeys.filter((key) => data[key] === undefined)
+  if (missingKeys.length > 0) {
+    throw new Error(`Missing required ${type} credential(s): ${missingKeys.join(', ')}`)
+  }
 }
 
 const normalizeDnsLabel = (value: string): string => {

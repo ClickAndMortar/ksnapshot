@@ -16,8 +16,8 @@ npm install      # Install dependencies
 
 **Build & push Docker images:**
 ```bash
-make build       # docker build -t clickandmortar/ksnapshot:latest .
-make push        # docker push clickandmortar/ksnapshot:latest
+make build       # builds ghcr.io/clickandmortar/* images tagged with VERSION (default: dev)
+make push        # pushes ghcr.io/clickandmortar/* images tagged with VERSION
 ```
 
 Node version: v22 (see `.nvmrc`).
@@ -26,11 +26,12 @@ Node version: v22 (see `.nvmrc`).
 
 ### Operator Loop (`src/index.ts`)
 The operator runs an infinite polling loop (60s interval) that:
-1. Lists all running pods and checks for `ksnapshot.clickandmortar.fr/*` annotations
+1. Lists running pods in the configured watched namespaces and checks for `ksnapshot.clickandmortar.fr/*` annotations
 2. Resolves pod ownership chain: Pod → ReplicaSet → Deployment
 3. Finds the Kubernetes Service matching pod selectors
-4. Creates/updates CronJobs in the `ksnapshot` namespace with the appropriate dumper image
-5. Cleans up orphaned CronJobs for pods that no longer exist or are disabled
+4. Resolves supported DB credential sources into an operator-managed Secret in the control namespace
+5. Creates/updates CronJobs in the control namespace with the appropriate dumper image
+6. Cleans up orphaned CronJobs and generated credential Secrets
 
 ### Kubernetes API (`src/k8s.ts`)
 Initializes KubeConfig with mode detection — `loadFromDefault()` for local dev, `loadFromCluster()` when `MODE=cluster`. Exports three API clients: `k8sCoreApi`, `k8sBatchApi`, `k8sAppsApi`.
@@ -57,9 +58,10 @@ Annotation prefix: `ksnapshot.clickandmortar.fr/`
 | `encryption-enabled` | No | Enable age encryption before upload (default: `false`) |
 | `encryption-recipient` | No | age recipient public key (required when encryption is enabled) |
 
-### Kubernetes Resources (`manifests/`)
-- Operator runs in `ksnapshot` namespace with a dedicated ServiceAccount, ClusterRole, and ClusterRoleBinding
-- Expects a Secret `ksnapshot-secret` (AWS credentials) and ConfigMap `ksnapshot-cm` (S3 bucket) in the `ksnapshot` namespace
+### Helm Deployment
+- Helm is the supported installation path
+- The operator runs in its own namespace with namespace-scoped Roles/RoleBindings for each watched namespace
+- Expects a Secret `ksnapshot-secret` (AWS credentials) and ConfigMap `ksnapshot-cm` (S3 bucket) in the control namespace
 
 ## CI / CD
 

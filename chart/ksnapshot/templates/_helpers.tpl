@@ -101,13 +101,11 @@ Resolve the operator image tag. Defaults to Chart.AppVersion.
 
 {{/*
 Resolve the operator image pull policy. If explicitly set, use it.
-Otherwise: Always for "latest", IfNotPresent for anything else.
+Otherwise default to IfNotPresent.
 */}}
 {{- define "ksnapshot.imagePullPolicy" -}}
 {{- if .Values.image.pullPolicy -}}
 {{- .Values.image.pullPolicy -}}
-{{- else if eq (include "ksnapshot.imageTag" .) "latest" -}}
-Always
 {{- else -}}
 IfNotPresent
 {{- end -}}
@@ -119,8 +117,6 @@ Resolve the backup job image pull policy. Same logic as operator.
 {{- define "ksnapshot.backupImagePullPolicy" -}}
 {{- if .Values.backupJob.imagePullPolicy -}}
 {{- .Values.backupJob.imagePullPolicy -}}
-{{- else if eq (include "ksnapshot.defaultImageTag" .) "latest" -}}
-Always
 {{- else -}}
 IfNotPresent
 {{- end -}}
