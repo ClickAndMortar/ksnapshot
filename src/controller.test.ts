@@ -363,13 +363,15 @@ test('reconcileOnce deletes stale CronJobs and mirrored Secrets when workload ty
             namespace: 'demo',
             ownerReferences: [
               {
+                apiVersion: 'apps/v1',
                 kind: 'Deployment',
                 name: 'database',
+                uid: 'test-uid',
               },
             ],
           },
           spec: {
-            containers: [{}],
+            containers: [{ name: 'main' }],
           },
           status: {
             phase: 'Running',
