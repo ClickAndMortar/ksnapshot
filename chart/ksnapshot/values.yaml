@@ -24,6 +24,10 @@ backupJob:
 rbac:
   create: true
 
+encryption:
+  enabled: false
+  recipient: ""
+
 dumperImages:
   mysql:
     v5_7: ""

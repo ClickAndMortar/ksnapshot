@@ -36,6 +36,8 @@ export interface ControllerConfig {
   backupSecretName: string
   backupJobServiceAccountName: string
   backupImagePullPolicy: string
+  defaultEncryptionEnabled: boolean
+  defaultEncryptionRecipient: string
   images: {
     mysql57: string
     mysql8: string
@@ -104,6 +106,8 @@ export const buildControllerConfig = (env: NodeJS.ProcessEnv = process.env): Con
     backupSecretName: env.BACKUP_SECRET_NAME || '',
     backupJobServiceAccountName: env.BACKUP_JOB_SERVICE_ACCOUNT_NAME || 'ksnapshot-backup-sa',
     backupImagePullPolicy: env.BACKUP_IMAGE_PULL_POLICY || 'IfNotPresent',
+    defaultEncryptionEnabled: env.DEFAULT_ENCRYPTION_ENABLED === 'true',
+    defaultEncryptionRecipient: env.DEFAULT_ENCRYPTION_RECIPIENT || '',
     images: {
       mysql57: env.MYSQL_DUMPER_IMAGE_5_7 || 'ghcr.io/clickandmortar/ksnapshot-dumper-mysql-5.7:latest',
       mysql8: env.MYSQL_DUMPER_IMAGE_8 || 'ghcr.io/clickandmortar/ksnapshot-dumper-mysql-8:latest',
@@ -208,7 +212,7 @@ export const reconcileOnce = async (apis: ControllerApis, config: ControllerConf
   )
 
   const podList = await apis.coreApi.listPodForAllNamespaces()
-  const { activeOwners, workloads } = await collectWorkloads(podList.items, apis.appsApi)
+  const { activeOwners, workloads } = await collectWorkloads(podList.items, apis.appsApi, config)
   const servicesByNamespace = new Map<string, V1Service[]>()
 
   for (const workload of workloads) {
@@ -290,7 +294,8 @@ export const reconcileOnce = async (apis: ControllerApis, config: ControllerConf
 
 export const collectWorkloads = async (
   pods: V1Pod[],
-  appsApi: AppsV1Api
+  appsApi: AppsV1Api,
+  config: ControllerConfig
 ): Promise<{ activeOwners: Set<string>; workloads: WorkloadGroup[] }> => {
   const activeOwners = new Set<string>()
   const invalidOwners = new Set<string>()
@@ -308,7 +313,7 @@ export const collectWorkloads = async (
     }
 
     try {
-      const settings = normalizeWorkloadSettings(pod)
+      const settings = normalizeWorkloadSettings(pod, config)
       if (!settings) {
         continue
       }
@@ -558,7 +563,7 @@ const buildBackendEnv = (config: ControllerConfig): V1EnvVar[] => {
   return env
 }
 
-const normalizeWorkloadSettings = (pod: V1Pod): Omit<WorkloadSettings, 'owner' | 'namespace'> | null => {
+const normalizeWorkloadSettings = (pod: V1Pod, config: ControllerConfig): Omit<WorkloadSettings, 'owner' | 'namespace'> | null => {
   const annotations = pod.metadata?.annotations
   if (!annotations) {
     return null
@@ -582,8 +587,15 @@ const normalizeWorkloadSettings = (pod: V1Pod): Omit<WorkloadSettings, 'owner' |
     return null
   }
 
-  const encryptionEnabled = annotations[getAnnotation('encryption-enabled')] === 'true'
-  const encryptionRecipient = annotations[getAnnotation('encryption-recipient')] || undefined
+  const encryptionEnabledAnnotation = annotations[getAnnotation('encryption-enabled')]
+  const encryptionRecipientAnnotation = annotations[getAnnotation('encryption-recipient')]
+
+  const encryptionEnabled =
+    encryptionEnabledAnnotation !== undefined
+      ? encryptionEnabledAnnotation === 'true'
+      : config.defaultEncryptionEnabled
+  const encryptionRecipient = encryptionRecipientAnnotation || config.defaultEncryptionRecipient || undefined
+
   if (encryptionEnabled && !encryptionRecipient) {
     console.error(`Pod ${formatPodName(pod)} enables encryption without a recipient, skipping`)
     return null

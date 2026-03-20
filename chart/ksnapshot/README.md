@@ -110,7 +110,18 @@ helm install ksnapshot clickandmortar/ksnapshot -n ksnapshot \
 
 ### Encryption
 
-All dumpers support optional [age](https://github.com/FiloSottile/age) encryption.
+All dumpers support optional [age](https://github.com/FiloSottile/age) encryption. It can be enabled globally via Helm values or per-pod via annotations. Pod annotations override operator-level defaults.
+
+**Operator-level (all backups):**
+
+```bash
+helm install ksnapshot clickandmortar/ksnapshot -n ksnapshot --create-namespace \
+  --set s3.bucket=my-bucket \
+  --set encryption.enabled=true \
+  --set encryption.recipient="age1..."
+```
+
+**Per-pod override:**
 
 ```bash
 kubectl annotate pod <pod-name> \
@@ -135,6 +146,8 @@ kubectl annotate pod <pod-name> \
 | `backupJob.serviceAccount.name` | string | `""` | Override the backup-job ServiceAccount name |
 | `backupJob.serviceAccount.annotations` | object | `{}` | Backup-job ServiceAccount annotations (for IRSA / Workload Identity) |
 | `rbac.create` | bool | `true` | Create ClusterRole, ClusterRoleBinding, Role, and RoleBinding |
+| `encryption.enabled` | bool | `false` | Enable age encryption for all backups |
+| `encryption.recipient` | string | `""` | age recipient public key (required when `encryption.enabled=true`) |
 | `dumperImages.mysql.v5_7` | string | `""` | Full image ref for the MySQL 5.7 dumper |
 | `dumperImages.mysql.v8` | string | `""` | Full image ref for the MySQL 8 dumper |
 | `dumperImages.postgresql.v16` | string | `""` | Full image ref for the PostgreSQL 16 dumper |

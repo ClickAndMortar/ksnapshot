@@ -72,6 +72,12 @@ spec:
               value: {{ include "ksnapshot.postgresql16Image" . | quote }}
             - name: ELASTICSEARCH_DUMPER_IMAGE
               value: {{ include "ksnapshot.elasticsearchImage" . | quote }}
+            {{- if .Values.encryption.enabled }}
+            - name: DEFAULT_ENCRYPTION_ENABLED
+              value: "true"
+            - name: DEFAULT_ENCRYPTION_RECIPIENT
+              value: {{ required "encryption.recipient is required when encryption.enabled is true" .Values.encryption.recipient | quote }}
+            {{- end }}
           volumeMounts:
             - mountPath: /tmp
               name: tmp

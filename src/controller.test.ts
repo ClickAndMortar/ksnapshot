@@ -178,7 +178,8 @@ test('collectWorkloads deduplicates multiple pods under the same resolved owner'
     },
   } as unknown as AppsV1Api
 
-  const collected = await collectWorkloads([firstPod, secondPod], appsApi)
+  const config = buildControllerConfig({})
+  const collected = await collectWorkloads([firstPod, secondPod], appsApi, config)
 
   assert.deepEqual(Array.from(collected.activeOwners), ['demo/database'])
   assert.equal(collected.workloads.length, 1)
