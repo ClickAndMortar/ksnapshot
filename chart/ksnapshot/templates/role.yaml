@@ -18,4 +18,13 @@ rules:
       - get
       - list
       - delete
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+      - update
+      - get
+      - delete
 {{- end }}
