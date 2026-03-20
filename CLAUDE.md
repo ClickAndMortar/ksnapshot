@@ -61,6 +61,18 @@ Annotation prefix: `ksnapshot.clickandmortar.fr/`
 - Operator runs in `ksnapshot` namespace with a dedicated ServiceAccount, ClusterRole, and ClusterRoleBinding
 - Expects a Secret `ksnapshot-secret` (AWS credentials) and ConfigMap `ksnapshot-cm` (S3 bucket) in the `ksnapshot` namespace
 
+## CI / CD
+
+Three GitHub Actions workflows in `.github/workflows/`:
+
+- **`ci.yaml`** — Runs `npm run lint` and `npm test` on every push to `main` and on PRs.
+- **`bump-version.yaml`** — Manual dispatch (`workflow_dispatch`). Accepts a bump type (`patch`, `minor`, `major`). Bumps the version in `package.json` and `chart/ksnapshot/Chart.yaml`, commits as `release: vX.Y.Z`, tags, pushes, and triggers the release workflow. **Never bump versions manually — always use this workflow.**
+- **`release.yaml`** — Manual dispatch triggered by bump-version (or manually with a tag). Builds and pushes all Docker images (operator + dumpers) to `ghcr.io/clickandmortar/ksnapshot*`, creates a GitHub Release with the Helm chart `.tgz`, and updates the `gh-pages` Helm repo index.
+
+### Releasing a new version
+
+Trigger the **Bump Version** workflow from the GitHub Actions UI (or via `gh workflow run bump-version.yaml --field bump=minor`). This handles everything: version bump, commit, tag, image builds, Helm chart packaging, and GitHub Release.
+
 ## Code Style
 
 - TypeScript with strict mode, ESNext target and module system
