@@ -40,8 +40,8 @@ spec:
           emptyDir: {}
       containers:
         - name: {{ .Chart.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: "{{ .Values.image.repository }}:{{ include "ksnapshot.imageTag" . }}"
+          imagePullPolicy: {{ include "ksnapshot.imagePullPolicy" . }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -63,7 +63,7 @@ spec:
             - name: BACKUP_JOB_SERVICE_ACCOUNT_NAME
               value: {{ include "ksnapshot.backupJobServiceAccountName" . | quote }}
             - name: BACKUP_IMAGE_PULL_POLICY
-              value: {{ .Values.backupJob.imagePullPolicy | quote }}
+              value: {{ include "ksnapshot.backupImagePullPolicy" . | quote }}
             - name: MYSQL_DUMPER_IMAGE_5_7
               value: {{ include "ksnapshot.mysql57Image" . | quote }}
             - name: MYSQL_DUMPER_IMAGE_8

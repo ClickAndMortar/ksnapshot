@@ -2,8 +2,8 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/clickandmortar/ksnapshot
-  tag: latest
-  pullPolicy: IfNotPresent
+  tag: ""
+  pullPolicy: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -15,7 +15,7 @@ serviceAccount:
   annotations: {}
 
 backupJob:
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: ""
   serviceAccount:
     create: true
     name: ""

@@ -93,10 +93,44 @@ ksnapshot-secret
 {{- end }}
 
 {{/*
-Resolve the full image reference for a dumper.
+Resolve the operator image tag. Defaults to Chart.AppVersion.
+*/}}
+{{- define "ksnapshot.imageTag" -}}
+{{- .Values.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{/*
+Resolve the operator image pull policy. If explicitly set, use it.
+Otherwise: Always for "latest", IfNotPresent for anything else.
+*/}}
+{{- define "ksnapshot.imagePullPolicy" -}}
+{{- if .Values.image.pullPolicy -}}
+{{- .Values.image.pullPolicy -}}
+{{- else if eq (include "ksnapshot.imageTag" .) "latest" -}}
+Always
+{{- else -}}
+IfNotPresent
+{{- end -}}
+{{- end }}
+
+{{/*
+Resolve the backup job image pull policy. Same logic as operator.
+*/}}
+{{- define "ksnapshot.backupImagePullPolicy" -}}
+{{- if .Values.backupJob.imagePullPolicy -}}
+{{- .Values.backupJob.imagePullPolicy -}}
+{{- else if eq (include "ksnapshot.defaultImageTag" .) "latest" -}}
+Always
+{{- else -}}
+IfNotPresent
+{{- end -}}
+{{- end }}
+
+{{/*
+Resolve the default image tag for dumpers. Uses image.tag if set, otherwise Chart.AppVersion.
 */}}
 {{- define "ksnapshot.defaultImageTag" -}}
-{{- default .Chart.AppVersion .Values.image.tag }}
+{{- .Values.image.tag | default .Chart.AppVersion }}
 {{- end }}
 
 {{- define "ksnapshot.mysql57Image" -}}
