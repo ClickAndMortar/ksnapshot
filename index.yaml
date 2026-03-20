@@ -2,6 +2,24 @@ apiVersion: v1
 entries:
   ksnapshot:
   - apiVersion: v2
+    appVersion: 0.6.0
+    created: "2026-03-20T12:29:33.145184167Z"
+    description: A Kubernetes operator that watches for annotated pods and creates
+      CronJobs for database snapshots (MySQL, Elasticsearch, PostgreSQL) uploaded
+      to S3
+    digest: 1fca628c19c7eb286d8eccc5ed3197fee0bfa5a477acdb9acf55c45cb6373f27
+    home: https://github.com/clickandmortar/ksnapshot
+    maintainers:
+    - name: Click & Mortar
+      url: https://github.com/clickandmortar
+    name: ksnapshot
+    sources:
+    - https://github.com/clickandmortar/ksnapshot
+    type: application
+    urls:
+    - https://github.com/ClickAndMortar/ksnapshot/releases/download/v0.6.0/ksnapshot-0.6.0.tgz
+    version: 0.6.0
+  - apiVersion: v2
     appVersion: 0.5.0
     created: "2026-03-20T11:36:56.164687354Z"
     description: A Kubernetes operator that watches for annotated pods and creates
@@ -127,4 +145,4 @@ entries:
     urls:
     - https://github.com/ClickAndMortar/ksnapshot/releases/download/ksnapshot-0.1.0/ksnapshot-0.1.0.tgz
     version: 0.1.0
-generated: "2026-03-20T11:36:56.1640483Z"
+generated: "2026-03-20T12:29:33.144592441Z"
