@@ -102,6 +102,18 @@ helm install ksnapshot clickandmortar/ksnapshot -n ksnapshot \
   --set dumperImages.elasticsearch=ghcr.io/clickandmortar/ksnapshot-dumper-elasticsearch:v1.2.3
 ```
 
+### Namespace restrictions
+
+By default the operator watches all namespaces for annotated pods (using a ClusterRole). To restrict it to specific namespaces, set `rbac.watchNamespaces`:
+
+```bash
+helm install ksnapshot clickandmortar/ksnapshot -n ksnapshot --create-namespace \
+  --set s3.bucket=my-bucket \
+  --set rbac.watchNamespaces='{default,production,staging}'
+```
+
+When `watchNamespaces` is set, the chart creates namespace-scoped Roles and RoleBindings instead of a ClusterRole/ClusterRoleBinding. The operator will only list pods in the specified namespaces.
+
 ### Workload requirements
 
 - The annotated workload must be matched by exactly one selector-based Service.
@@ -145,7 +157,8 @@ kubectl annotate pod <pod-name> \
 | `backupJob.serviceAccount.create` | bool | `true` | Create the backup-job ServiceAccount |
 | `backupJob.serviceAccount.name` | string | `""` | Override the backup-job ServiceAccount name |
 | `backupJob.serviceAccount.annotations` | object | `{}` | Backup-job ServiceAccount annotations (for IRSA / Workload Identity) |
-| `rbac.create` | bool | `true` | Create ClusterRole, ClusterRoleBinding, Role, and RoleBinding |
+| `rbac.create` | bool | `true` | Create RBAC resources (ClusterRole or per-namespace Roles) |
+| `rbac.watchNamespaces` | list | `[]` | Namespaces the operator can watch. `[]` = all namespaces (ClusterRole). Set to a list to restrict (per-namespace Roles) |
 | `encryption.enabled` | bool | `false` | Enable age encryption for all backups |
 | `encryption.recipient` | string | `""` | age recipient public key (required when `encryption.enabled=true`) |
 | `dumperImages.mysql.v5_7` | string | `""` | Full image ref for the MySQL 5.7 dumper |

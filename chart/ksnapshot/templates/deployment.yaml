@@ -51,6 +51,10 @@ spec:
           env:
             - name: MODE
               value: cluster
+            {{- if .Values.rbac.watchNamespaces }}
+            - name: WATCH_NAMESPACES
+              value: {{ join "," .Values.rbac.watchNamespaces | quote }}
+            {{- end }}
             - name: CONTROL_NAMESPACE
               valueFrom:
                 fieldRef:

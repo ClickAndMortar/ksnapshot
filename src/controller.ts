@@ -35,6 +35,7 @@ export const labelSelector = qs.stringify(labelFilters, { encodeValuesOnly: true
 
 export interface ControllerConfig {
   controlNamespace: string
+  watchNamespaces: string[]
   backupConfigMapName: string
   backupSecretName: string
   backupJobServiceAccountName: string
@@ -105,6 +106,7 @@ const postgresqlEnvMappings: ReadonlyArray<[string, string]> = [
 export const buildControllerConfig = (env: NodeJS.ProcessEnv = process.env): ControllerConfig => {
   return {
     controlNamespace: env.CONTROL_NAMESPACE || 'ksnapshot',
+    watchNamespaces: env.WATCH_NAMESPACES ? env.WATCH_NAMESPACES.split(',').filter(Boolean) : [],
     backupConfigMapName: env.BACKUP_CONFIGMAP_NAME || 'ksnapshot-cm',
     backupSecretName: env.BACKUP_SECRET_NAME || '',
     backupJobServiceAccountName: env.BACKUP_JOB_SERVICE_ACCOUNT_NAME || 'ksnapshot-backup-sa',
@@ -260,8 +262,17 @@ export const reconcileOnce = async (apis: ControllerApis, config: ControllerConf
       .filter((entry): entry is [string, V1CronJob] => Boolean(entry[0]))
   )
 
-  const podList = await apis.coreApi.listPodForAllNamespaces()
-  const { activeOwners, workloads } = await collectWorkloads(podList.items, apis.appsApi, config)
+  let allPods: V1Pod[]
+  if (config.watchNamespaces.length > 0) {
+    const lists = await Promise.all(
+      config.watchNamespaces.map((namespace) => apis.coreApi.listNamespacedPod({ namespace }))
+    )
+    allPods = lists.flatMap((list) => list.items)
+  } else {
+    const podList = await apis.coreApi.listPodForAllNamespaces()
+    allPods = podList.items
+  }
+  const { activeOwners, workloads } = await collectWorkloads(allPods, apis.appsApi, config)
   const servicesByNamespace = new Map<string, V1Service[]>()
 
   for (const workload of workloads) {

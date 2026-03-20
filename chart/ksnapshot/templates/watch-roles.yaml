@@ -1,0 +1,49 @@
+{{- if and .Values.rbac.create .Values.rbac.watchNamespaces -}}
+{{- $fullname := include "ksnapshot.fullname" . -}}
+{{- $labels := include "ksnapshot.labels" . -}}
+{{- $saName := include "ksnapshot.serviceAccountName" . -}}
+{{- $releaseNamespace := .Release.Namespace -}}
+{{- range .Values.rbac.watchNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-watch
+  namespace: {{ . }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - services
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullname }}-watch
+  namespace: {{ . }}
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullname }}-watch
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ $releaseNamespace }}
+{{- end }}
+{{- end }}
