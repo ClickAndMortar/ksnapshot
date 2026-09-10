@@ -134,6 +134,71 @@ printf -- '--\n' >> "${'$'}{TEST_ROOT}/osm.args"
   await rm(result.testRoot, { force: true, recursive: true })
 })
 
+test('elasticsearch dumper skips optional metadata types and still uploads', async () => {
+  const result = await runScript(
+    elasticsearchScriptPath,
+    {
+      BACKEND_BUCKET: 'snapshots',
+      BACKEND_PATH: 'ksnapshot',
+      BACKEND_TYPE: 's3',
+      ELASTICSEARCH_HOST: 'es.demo.svc',
+      ELASTICSEARCH_PORT: '9200',
+      HOSTNAME: 'es-pod',
+    },
+    {
+      curl: `#!/bin/bash
+set -euo pipefail
+printf '{"version":{"number":"8.11.0"}}'
+`,
+      jq: `#!/bin/bash
+set -euo pipefail
+printf '8.11.0'
+`,
+      semver: `#!/bin/bash
+set -euo pipefail
+exit 0
+`,
+      // Une grappe ES sans alias defini fait sortir elasticdump en erreur sur ce seul type.
+      elasticdump: `#!/bin/bash
+set -euo pipefail
+type=""
+output=""
+for arg in "$@"; do
+  case "$arg" in
+    --type=*) type=$(printf '%s' "$arg" | cut -d= -f2) ;;
+    --output=*) output=$(printf '%s' "$arg" | cut -d= -f2) ;;
+  esac
+done
+printf '%s\n' "$type" >> "${'$'}{TEST_ROOT}/elasticdump.types"
+if [ "$type" = "alias" ]; then
+  echo 'index_not_found_exception: undefined' >&2
+  exit 7
+fi
+printf 'dump' > "$output"
+`,
+      osm: `#!/bin/bash
+set -euo pipefail
+printf '%s\n' "$@" >> "${'$'}{TEST_ROOT}/osm.args"
+`,
+    }
+  )
+
+  const attemptedTypes = await readFile(join(result.testRoot, 'elasticdump.types'), 'utf8')
+  const osmArgs = await readFile(join(result.testRoot, 'osm.args'), 'utf8')
+
+  // Le type optionnel a bien ete tente, puis abandonne sans faire echouer le job...
+  assert.match(attemptedTypes, /alias/)
+  assert.match(result.stderr, /Dumping type \[alias\]\.\.\. SKIPPED/)
+  assert.match(result.stderr, /Optional types skipped: alias/)
+  // ...les types critiques sont alles au bout, et l'envoi S3 a eu lieu.
+  assert.match(result.stdout, /Dumping type \[data\]\.\.\. Done/)
+  assert.match(result.stdout, /Dumping type \[mapping\]\.\.\. Done/)
+  assert.match(osmArgs, /push/)
+  assert.match(osmArgs, /\/ksnapshot\/\d{4}\/\d{2}\/\d{2}\/elasticsearch\//)
+
+  await rm(result.testRoot, { force: true, recursive: true })
+})
+
 test('elasticsearch dumper surfaces elasticdump failures', async () => {
   await assert.rejects(
     () =>

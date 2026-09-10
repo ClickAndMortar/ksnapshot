@@ -75,17 +75,54 @@ if semver -r '>=7.8.0' "${ELASTICSEARCH_VERSION}"; then
   elasticdump_types=(index_template component_template "${elasticdump_types[@]}")
 fi
 
+# Cluster metadata types that may legitimately not exist on a given instance.
+# elasticdump exits non-zero (404 index_not_found_exception on "undefined") when
+# asked for e.g. aliases on a cluster that defines none. Losing an empty alias
+# list must not invalidate a snapshot whose data and mappings already dumped.
+optional_types=(alias template policy index_template component_template)
+
+is_optional_type() {
+  local candidate="$1"
+  local known
+  for known in "${optional_types[@]}"; do
+    [[ "${known}" == "${candidate}" ]] && return 0
+  done
+  return 1
+}
+
+skipped_types=()
+
 for type in "${elasticdump_types[@]}"; do
   echo "Dumping type [${type}]..."
+
+  status=0
   elasticdump \
     --input="${ELASTICSEARCH_URL}" \
     --output="${DUMP_DIRECTORY}/${DUMP_PREFIX}-${type}${DUMP_SUFFIX}" \
     --type="${type}" \
     --noRefresh \
     --fsCompress \
-    --limit="${ELASTICDUMP_LIMIT}"
-  echo "Dumping type [${type}]... Done"
+    --limit="${ELASTICDUMP_LIMIT}" || status=$?
+
+  if [[ "${status}" -eq 0 ]]; then
+    echo "Dumping type [${type}]... Done"
+    continue
+  fi
+
+  if ! is_optional_type "${type}"; then
+    echo "Dumping type [${type}]... FAILED (elasticdump exited ${status})" >&2
+    exit "${status}"
+  fi
+
+  # Drop the partial artifact so a truncated file is never pushed to S3.
+  rm -f "${DUMP_DIRECTORY}/${DUMP_PREFIX}-${type}${DUMP_SUFFIX}"
+  skipped_types+=("${type}")
+  echo "Dumping type [${type}]... SKIPPED (elasticdump exited ${status}, optional type)" >&2
 done
+
+if [[ "${#skipped_types[@]}" -gt 0 ]]; then
+  echo "Optional types skipped: ${skipped_types[*]}" >&2
+fi
 
 if [[ "${ENCRYPTION_ENABLED:-false}" == "true" ]]; then
   : "${ENCRYPTION_RECIPIENT:?ENCRYPTION_RECIPIENT is required when encryption is enabled}"
