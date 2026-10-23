@@ -1,4 +1,4 @@
-FROM node:22-slim AS builder
+FROM node:22.23.4-slim AS builder
 
 WORKDIR /app
 
@@ -7,7 +7,7 @@ COPY . /app/
 RUN npm install \
     && node_modules/.bin/tsc
 
-FROM node:22-slim
+FROM node:22.23.4-slim
 
 ENV MODE=cluster
 ENV NODE_ENV=production
